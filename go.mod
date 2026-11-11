@@ -1,4 +1,4 @@
-module spring-initializr
+module github.com/miferdev/spring-inicializador
 
 go 1.27
 

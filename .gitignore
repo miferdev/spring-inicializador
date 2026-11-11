@@ -1,6 +1,6 @@
 # Built binary
-/spring-initializr
-/spring-initializr.exe
+/spring-inicializador
+/spring-inicializador.exe
 
 # Go test and coverage artifacts
 *.test
