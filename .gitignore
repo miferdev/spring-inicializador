@@ -1,0 +1,13 @@
+# Built binary
+/spring-initializr
+/spring-initializr.exe
+
+# Go test and coverage artifacts
+*.test
+*.out
+*.coverprofile
+coverage.*
+
+# Agent guidance docs: kept on disk, never published
+/AGENTS.md
+/docs/
