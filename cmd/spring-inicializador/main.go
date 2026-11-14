@@ -47,6 +47,7 @@ Usage:
 Flags:
   --deps IDs         Comma-separated dependency ids, e.g. web,data-jpa
   --output DIR       Directory that receives the generated project (default ".")
+  --force            Overwrite an existing output directory
   --group-id ID      Project group id (default: from server metadata)
   --artifact-id ID   Project artifact id (default: from server metadata)
   --server URL       Initializr base URL for metadata and generation
@@ -74,6 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	deps := flags.String("deps", "", "comma-separated dependency ids, e.g. web,data-jpa")
 	output := flags.String("output", ".", "directory that receives the generated project")
+	force := flags.Bool("force", false, "overwrite an existing output directory")
 	groupID := flags.String("group-id", "", "project group id (default: from server metadata)")
 	artifactID := flags.String("artifact-id", "", "project artifact id (default: from server metadata)")
 	server := flags.String("server", defaultServer, "Initializr base URL for metadata and generation")
@@ -131,14 +133,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, err)
 	}
 
-	if err := extract.Extract(archive, *output); err != nil {
+	overwrote, err := extract.Extract(archive, *output, *force)
+	if err != nil {
 		return reportError(stderr, err)
 	}
 
 	// The server names the archive's top-level directory after baseDir, which
 	// this tool always sets to the artifact id.
 	destination := filepath.Join(*output, opts.ArtifactID)
-	fmt.Fprintf(stdout, "Created %s\n", destination)
+	if overwrote {
+		fmt.Fprintf(stdout, "Overwrote %s\n", destination)
+	} else {
+		fmt.Fprintf(stdout, "Created %s\n", destination)
+	}
 	fmt.Fprintf(stdout, "Next: cd %s && %s\n", destination, runCommand(opts))
 	return exitOK
 }

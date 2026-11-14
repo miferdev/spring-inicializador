@@ -3,8 +3,11 @@ package extract_test
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/miferdev/spring-inicializador/internal/extract"
@@ -55,7 +58,7 @@ func testArchive(t *testing.T) []byte {
 func TestExtract(t *testing.T) {
 	dest := t.TempDir()
 
-	if err := extract.Extract(testArchive(t), dest); err != nil {
+	if _, err := extract.Extract(testArchive(t), dest, false); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
@@ -101,7 +104,73 @@ func TestExtract(t *testing.T) {
 }
 
 func TestExtractInvalidArchive(t *testing.T) {
-	if err := extract.Extract([]byte("not a zip"), t.TempDir()); err == nil {
+	if _, err := extract.Extract([]byte("not a zip"), t.TempDir(), false); err == nil {
 		t.Fatal("Extract accepted a non-zip body")
+	}
+}
+
+// A destination with anything in it is somebody's project. Refusing before the
+// first write is what makes a typo in --output harmless.
+func TestExtractRefusesExistingDestination(t *testing.T) {
+	dest := t.TempDir()
+	keep := filepath.Join(dest, "keep.txt")
+	if err := os.WriteFile(keep, []byte("mine"), 0o644); err != nil {
+		t.Fatalf("seed destination: %v", err)
+	}
+
+	overwrote, err := extract.Extract(testArchive(t), dest, false)
+	if err == nil {
+		t.Fatal("Extract overwrote a non-empty destination without force")
+	}
+	if overwrote {
+		t.Error("overwrote = true, want false on a refused run")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error = %q, want it to name the flag that overrides the refusal", err)
+	}
+	if body, err := os.ReadFile(keep); err != nil || string(body) != "mine" {
+		t.Errorf("existing file changed: body %q, err %v", body, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "demo")); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("Extract wrote into a destination it refused")
+	}
+}
+
+func TestExtractOverwritesWithForce(t *testing.T) {
+	dest := t.TempDir()
+	stale := filepath.Join(dest, "demo", "pom.xml")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatalf("seed destination: %v", err)
+	}
+	if err := os.WriteFile(stale, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("seed stale file: %v", err)
+	}
+
+	overwrote, err := extract.Extract(testArchive(t), dest, true)
+	if err != nil {
+		t.Fatalf("Extract with force: %v", err)
+	}
+	if !overwrote {
+		t.Error("overwrote = false, want true when force replaced an existing destination")
+	}
+
+	body, err := os.ReadFile(stale)
+	if err != nil {
+		t.Fatalf("read overwritten file: %v", err)
+	}
+	if string(body) != "<project/>\n" {
+		t.Errorf("pom.xml body = %q, want the archive contents", body)
+	}
+}
+
+// An empty directory is the normal state of `mkdir checkout && --output checkout`,
+// so it is not a conflict.
+func TestExtractAllowsEmptyExistingDestination(t *testing.T) {
+	overwrote, err := extract.Extract(testArchive(t), t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("Extract into an empty destination: %v", err)
+	}
+	if overwrote {
+		t.Error("overwrote = true, want false for an empty destination")
 	}
 }

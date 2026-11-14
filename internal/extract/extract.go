@@ -1,14 +1,16 @@
 // Package extract writes an in-memory project archive to disk. It never
-// fetches: it receives bytes plus a destination directory. Path-escaping
-// rejection, existing-destination refusal and atomic renames belong to later
-// stories (US1.5, US1.6); the structure here keeps those additions local.
+// fetches: it receives bytes plus a destination directory. Atomic renames and
+// path-escaping rejection belong to US1.6; the structure here keeps those
+// additions local.
 package extract
 
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -33,22 +35,49 @@ const (
 // directory (the server sends `demo/...`, so `--output .` yields `./demo`) and
 // each entry's stored permission bits, including the executable bit on mvnw and
 // gradlew.
-func Extract(data []byte, destDir string) error {
+//
+// A destination that already exists and holds anything is refused unless force
+// is set. Nothing is written before that check, so a refused run leaves the
+// existing directory exactly as it was. The second return value reports whether
+// an existing destination was replaced, which lets the caller say "overwrote"
+// instead of "created".
+func Extract(data []byte, destDir string, force bool) (bool, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return fmt.Errorf("extract: opening archive: %w", err)
+		return false, fmt.Errorf("extract: opening archive: %w", err)
+	}
+
+	empty, err := dirIsEmpty(destDir)
+	if err != nil {
+		return false, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
+	}
+	if !empty && !force {
+		return false, fmt.Errorf("extract: destination %s already exists and is not empty; pass --force to overwrite", destDir)
 	}
 
 	if err := os.MkdirAll(destDir, privateDirMode); err != nil {
-		return fmt.Errorf("extract: creating destination %s: %w", destDir, err)
+		return false, fmt.Errorf("extract: creating destination %s: %w", destDir, err)
 	}
 
 	for _, file := range reader.File {
 		if err := extractFile(file, destDir); err != nil {
-			return fmt.Errorf("extract: %s: %w", file.Name, err)
+			return false, fmt.Errorf("extract: %s: %w", file.Name, err)
 		}
 	}
-	return nil
+	return !empty, nil
+}
+
+// dirIsEmpty reports whether path is missing or holds nothing. A missing
+// destination is not a conflict: that is the normal first run.
+func dirIsEmpty(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
 }
 
 func extractFile(file *zip.File, destDir string) error {

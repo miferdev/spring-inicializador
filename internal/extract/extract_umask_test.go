@@ -20,7 +20,7 @@ func TestExtractIgnoresProcessUmask(t *testing.T) {
 	t.Cleanup(func() { syscall.Umask(previous) })
 
 	dest := t.TempDir()
-	if err := extract.Extract(testArchive(t), dest); err != nil {
+	if _, err := extract.Extract(testArchive(t), dest, false); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
