@@ -106,19 +106,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	// One base URL for both endpoints. A malformed --server is a usage error
+	// and fails before any request is built.
+	baseURL, err := catalog.NormalizeBaseURL(*server)
+	if err != nil {
+		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
+		return exitUsage
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	client := &http.Client{Timeout: requestTimeout}
 
-	c, err := catalog.Fetch(ctx, client, *server)
+	c, err := catalog.Fetch(ctx, client, baseURL)
 	if err != nil {
 		return reportError(stderr, err)
 	}
 
 	opts := resolve(c, *groupID, *artifactID, *deps)
 
-	archive, err := render.Render(ctx, client, *server, opts)
+	archive, err := render.Render(ctx, client, baseURL, opts)
 	if err != nil {
 		return reportError(stderr, err)
 	}

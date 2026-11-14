@@ -21,12 +21,15 @@ const formContentType = "application/x-www-form-urlencoded"
 // Render requests the project archive from baseURL. On a non-200 response the
 // returned error carries the server's body verbatim, so the caller can print
 // the server's own message without a second request or a client-side guess.
+//
+// baseURL must already be normalized by catalog.NormalizeBaseURL, so the
+// metadata fetch and this call can never point at different servers.
 func Render(ctx context.Context, client *http.Client, baseURL string, opts options.Options) ([]byte, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
 
-	endpoint := strings.TrimRight(baseURL, "/") + starterPath
+	endpoint := baseURL + starterPath
 	body := opts.Form().Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(body))

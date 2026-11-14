@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // metadataPath is the single place this package names the metadata endpoint.
@@ -19,7 +18,7 @@ func Fetch(ctx context.Context, client *http.Client, baseURL string) (*Catalog, 
 		client = http.DefaultClient
 	}
 
-	endpoint := strings.TrimRight(baseURL, "/") + metadataPath
+	endpoint := baseURL + metadataPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: building metadata request for %s: %w", endpoint, err)

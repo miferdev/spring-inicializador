@@ -30,8 +30,14 @@ func TestFetch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// A trailing slash on the base URL must not produce a doubled path.
-	got, err := catalog.Fetch(context.Background(), server.Client(), server.URL+"/")
+	// Normalization belongs to the caller, not to Fetch: mirror production by
+	// normalizing first, then assert the request path is not doubled.
+	base, err := catalog.NormalizeBaseURL(server.URL + "/")
+	if err != nil {
+		t.Fatalf("NormalizeBaseURL: %v", err)
+	}
+
+	got, err := catalog.Fetch(context.Background(), server.Client(), base)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
