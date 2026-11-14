@@ -223,9 +223,11 @@ func TestRunOverridesIdentifiers(t *testing.T) {
 }
 
 func TestRunServerRejection(t *testing.T) {
+	const message = "Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0"
+
 	fake := newFakeInitializr(t)
 	fake.status = http.StatusBadRequest
-	fake.reject = `{"status":400,"message":"Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0"}`
+	fake.reject = `{"status":400,"message":"` + message + `"}`
 
 	var stdout, stderr bytes.Buffer
 	code := run(fake.args(
@@ -236,8 +238,12 @@ func TestRunServerRejection(t *testing.T) {
 	if code != 1 {
 		t.Errorf("run exit code = %d, want 1 for a server rejection", code)
 	}
-	if !strings.Contains(stderr.String(), fake.reject) {
-		t.Errorf("stderr %q does not carry the server body", stderr.String())
+	// The server's sentence, not the JSON envelope around it.
+	if !strings.Contains(stderr.String(), message) {
+		t.Errorf("stderr %q does not carry the server message", stderr.String())
+	}
+	if strings.Contains(stderr.String(), `"status":400`) {
+		t.Errorf("stderr %q carries the JSON envelope instead of the message", stderr.String())
 	}
 	assertNoANSI(t, stderr.String())
 }

@@ -5,6 +5,7 @@ package render_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -93,12 +94,13 @@ func TestRenderPostsForm(t *testing.T) {
 	}
 }
 
-// TestRenderRejectionCarriesBody proves a non-200 response surfaces the
-// server's own text, so US1.4 can print it verbatim without changing the flow.
-func TestRenderRejectionCarriesBody(t *testing.T) {
-	const body = `{"timestamp":"2026-11-14T00:00:00Z","status":400,"error":"Bad Request",` +
-		`"message":"Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0",` +
-		`"path":"/starter.zip"}`
+// A rejection must read exactly like the server wrote it. The message is
+// already a sentence for a human, and rewording it or bolting a prefix onto it
+// is how a client drifts from the service it talks to.
+func TestRenderRejectionPrintsServerMessageVerbatim(t *testing.T) {
+	const message = "Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0"
+	body := `{"timestamp":"2026-11-14T00:00:00Z","status":400,"error":"Bad Request",` +
+		`"message":"` + message + `","path":"/starter.zip"}`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -111,10 +113,36 @@ func TestRenderRejectionCarriesBody(t *testing.T) {
 	if err == nil {
 		t.Fatal("Render returned no error for a 400 response")
 	}
-	if !strings.Contains(err.Error(), body) {
-		t.Errorf("error %q does not carry the response body", err)
+	if err.Error() != message {
+		t.Errorf("error = %q, want exactly the server message %q", err.Error(), message)
 	}
-	if !strings.Contains(err.Error(), "400") {
-		t.Errorf("error %q does not name the status", err)
+
+	var serverErr *render.ServerError
+	if !errors.As(err, &serverErr) {
+		t.Fatalf("error type = %T, want *render.ServerError", err)
+	}
+	if serverErr.Message != message {
+		t.Errorf("ServerError.Message = %q, want %q", serverErr.Message, message)
+	}
+	if serverErr.Status != "400 Bad Request" {
+		t.Errorf("ServerError.Status = %q, want %q", serverErr.Status, "400 Bad Request")
+	}
+}
+
+// A rejection that is not the documented JSON shape still has to say something
+// useful: the status and whatever the server sent.
+func TestRenderRejectionWithoutJSONFallsBack(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = io.WriteString(w, "upstream unavailable")
+	}))
+	defer server.Close()
+
+	_, err := render.Render(context.Background(), server.Client(), server.URL, testOptions())
+	if err == nil {
+		t.Fatal("Render returned no error for a 502 response")
+	}
+	if !strings.Contains(err.Error(), "502") || !strings.Contains(err.Error(), "upstream unavailable") {
+		t.Errorf("error = %q, want the status and the body", err.Error())
 	}
 }
