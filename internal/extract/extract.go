@@ -13,22 +13,33 @@ import (
 	"path/filepath"
 )
 
-const defaultDirMode = 0o755
+const (
+	// defaultDirMode and defaultFileMode are used only when the archive stores
+	// no permission bits at all; an entry with no mode would otherwise be
+	// written unreadable.
+	defaultDirMode  = 0o755
+	defaultFileMode = 0o644
 
-// defaultFileMode is used only when the archive stores no permission bits at
-// all; a file with no mode would otherwise be written unreadable.
-const defaultFileMode = 0o644
+	// Entries are created privately and widened to their stored mode with an
+	// explicit chmod afterwards. Both MkdirAll and OpenFile apply the process
+	// umask, so creating 0755 directly would lose the group and other bits
+	// under a restrictive umask — a checkout with mvnw at 0700 is not the
+	// project the server shipped.
+	privateDirMode  = 0o700
+	privateFileMode = 0o600
+)
 
 // Extract unpacks data into destDir, preserving the archive's top-level
 // directory (the server sends `demo/...`, so `--output .` yields `./demo`) and
-// each entry's stored permission bits.
+// each entry's stored permission bits, including the executable bit on mvnw and
+// gradlew.
 func Extract(data []byte, destDir string) error {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("extract: opening archive: %w", err)
 	}
 
-	if err := os.MkdirAll(destDir, defaultDirMode); err != nil {
+	if err := os.MkdirAll(destDir, privateDirMode); err != nil {
 		return fmt.Errorf("extract: creating destination %s: %w", destDir, err)
 	}
 
@@ -51,7 +62,10 @@ func extractFile(file *zip.File, destDir string) error {
 		if perm == 0 {
 			perm = defaultDirMode
 		}
-		return os.MkdirAll(path, perm)
+		if err := os.MkdirAll(path, privateDirMode); err != nil {
+			return err
+		}
+		return chmod(path, perm)
 	}
 	if !mode.IsRegular() {
 		// Symlinks and devices are not part of a Spring Initializr archive;
@@ -59,7 +73,7 @@ func extractFile(file *zip.File, destDir string) error {
 		return fmt.Errorf("unsupported file type %s", mode.Type())
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), defaultDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), privateDirMode); err != nil {
 		return fmt.Errorf("creating parent directory: %w", err)
 	}
 
@@ -74,7 +88,7 @@ func extractFile(file *zip.File, destDir string) error {
 	}
 	defer src.Close()
 
-	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, privateFileMode)
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}
@@ -84,6 +98,17 @@ func extractFile(file *zip.File, destDir string) error {
 	}
 	if err := dst.Close(); err != nil {
 		return fmt.Errorf("closing file: %w", err)
+	}
+
+	// Widen from the private mode now that the content is in place.
+	return chmod(path, perm)
+}
+
+// chmod applies the archive's permission bits exactly, bypassing the umask that
+// applied when the entry was created.
+func chmod(path string, perm os.FileMode) error {
+	if err := os.Chmod(path, perm); err != nil {
+		return fmt.Errorf("setting permissions: %w", err)
 	}
 	return nil
 }
