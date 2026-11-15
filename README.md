@@ -133,9 +133,14 @@ internal/extract/           unzip, permission bits, staging directory
 go test ./...
 ```
 
-The suite runs with the network unplugged. The metadata payload is frozen in
+No test makes an HTTP request. The metadata payload is frozen in
 `internal/catalog/testdata/`, with its endpoint, capture date and SHA-256 recorded next to it, so a
-catalog change shows up as a deliberate diff instead of a surprise failure.
+catalog change shows up as a deliberate diff instead of a surprise failure; `httptest` servers on
+loopback cover the two endpoints.
+
+Third-party modules are not vendored, so a fresh clone downloads `go.sum` once and runs offline after
+that. Vendoring a TUI library would put third-party code in every review for something the module cache
+already provides.
 
 ## Feedback
 
