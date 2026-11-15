@@ -16,15 +16,15 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** The only thing that works today, and the only thing with tests, is the metadata parser —
-it reads the Initializr catalog offline from a frozen fixture. There is no generation, no extraction and
-no interface yet.
+**Pre-alpha.** Generating a project from flags works end to end: metadata, generation, extraction and
+the next-steps line, with tests that run offline. There is no interactive interface yet, so choosing
+dependencies still means knowing their IDs — that is what the next slices add.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
 | VS0 | Module, metadata parser, offline fixture | done |
-| VS1 | Generate and extract a project from flags | next |
-| VS2 | Project form with flag parity | planned |
+| VS1 | Generate and extract a project from flags | done |
+| VS2 | Project form with flag parity | next |
 | VS3 | Searchable dependency list | planned |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
@@ -46,19 +46,37 @@ cd spring-inicializador
 go build -o spring-inicializador ./cmd/spring-inicializador
 ```
 
-Generating a project will need network access to the Initializr API.
+Generating a project needs network access to the Initializr API.
 
 ## Usage
 
-Not usable yet. Today the binary only reports its version:
-
 ```console
-$ spring-inicializador
-spring-inicializador dev
+$ spring-inicializador --deps web,data-jpa --output ~/projects --yes
+Created /home/you/projects/demo
+Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 ```
 
-The interface is being built slice by slice. When the dependency pane exists it will look roughly like
-this — categories and counts come from the metadata, never from this file:
+| Flag | Meaning |
+| --- | --- |
+| `--deps` | Comma-separated dependency IDs, e.g. `web,data-jpa,postgresql` |
+| `--output` | Directory that receives the project (default `.`) |
+| `--group-id`, `--artifact-id` | Project coordinates; the package name follows them |
+| `--server` | Initializr base URL for self-hosted instances (default `start.spring.io`) |
+| `--force` | Replace a destination that already has content |
+| `--yes` | Never prompt — today's pipeline never does, and later screens keep that promise |
+| `--version`, `--help` | |
+
+Exit codes: `0` success, `1` server or filesystem failure, `2` usage error, `130` interrupted.
+
+The project is extracted into `<output>/<artifact-id>`, with the permission bits the server stored — so
+`mvnw` and `gradlew` arrive executable, and a failed run leaves no half-written directory behind.
+
+Server rejections are printed verbatim. The tool does not reimplement the server's validation, so when
+a version or dependency is invalid you read the same sentence the web UI would show you.
+
+The interactive interface is the point of the project and it does not exist yet. When the dependency
+pane lands it will look roughly like this — categories and counts come from the metadata, never from
+this file:
 
 ```text
 +------------------------------------------------------------------------------+
@@ -102,8 +120,11 @@ The metadata catalog feeds the form; the generator only sees the resolved option
 Extraction takes bytes and a destination and touches nothing else.
 
 ```
-cmd/spring-inicializador/   command entrypoint
-internal/catalog/           metadata parsing, fixture and index
+cmd/spring-inicializador/   command entrypoint and flags
+internal/options/           the value both frontends fill
+internal/catalog/           metadata fetch, parsing, fixture and index
+internal/render/            POST /starter.zip
+internal/extract/           unzip, permission bits, staging directory
 ```
 
 ## Development
