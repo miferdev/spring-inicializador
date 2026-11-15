@@ -61,6 +61,7 @@ Flags:
   --boot-version VER Spring Boot version, e.g. 4.1.2.RELEASE (default: server default)
   --server URL       Initializr base URL for metadata and generation
                      (default "https://start.spring.io")
+  --dry-run          Print the resolved options and exit without generating
   --yes              Run without prompting, taking defaults
   --version          Print the version and exit
   --help, -h         Print this help and exit
@@ -94,6 +95,7 @@ type commandLine struct {
 	javaVersion string
 	bootVersion string
 	server      string
+	dryRun      bool
 	yes         bool
 	version     bool
 	help        bool
@@ -120,6 +122,7 @@ func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags.StringVar(&cmd.javaVersion, "java", "", "Java version, e.g. 21 (default: from server metadata)")
 	flags.StringVar(&cmd.bootVersion, "boot-version", "", "Spring Boot version, e.g. 4.1.2.RELEASE (default: server default)")
 	flags.StringVar(&cmd.server, "server", defaultServer, "Initializr base URL for metadata and generation")
+	flags.BoolVar(&cmd.dryRun, "dry-run", false, "print the resolved options and exit without generating")
 	flags.BoolVar(&cmd.yes, "yes", false, "run without prompting, taking defaults")
 	flags.BoolVar(&cmd.version, "version", false, "print the version and exit")
 	flags.BoolVar(&cmd.help, "help", false, "print this help and exit")
@@ -340,6 +343,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		opts = chosen
 	}
 
+	// --dry-run resolves everything a real run would and then prints it instead
+	// of generating: no /starter.zip request, no extraction, no output directory.
+	if cmd.dryRun {
+		writeDryRun(stdout, opts)
+		return exitOK
+	}
+
 	archive, err := render.Render(ctx, client, baseURL, opts)
 	if err != nil {
 		return reportError(stderr, err)
@@ -420,6 +430,39 @@ func splitDeps(list string) []string {
 		}
 	}
 	return deps
+}
+
+// dryRunField is one line of the dry run report.
+type dryRunField struct {
+	key   string
+	value string
+}
+
+// dryRunReport is the only place that decides what a dry run prints and in which
+// order: the project fields the form fills, then the dependencies. The order and
+// the keys are fixed on purpose, because the output is meant to be diffed.
+func dryRunReport(opts options.Options) []dryRunField {
+	return []dryRunField{
+		{"group-id", opts.GroupID},
+		{"artifact-id", opts.ArtifactID},
+		{"name", opts.Name},
+		{"package-name", opts.PackageName},
+		{"build", opts.Build},
+		{"language", opts.Language},
+		{"packaging", opts.Packaging},
+		{"java", opts.JavaVersion},
+		{"boot-version", opts.BootVersion},
+		{"deps", strings.Join(opts.Deps, ",")},
+	}
+}
+
+// writeDryRun prints the resolved request, one "key=value" line per field. No
+// timestamps, colors, paths or width-dependent alignment: two identical
+// invocations must produce identical bytes.
+func writeDryRun(stdout io.Writer, opts options.Options) {
+	for _, field := range dryRunReport(opts) {
+		fmt.Fprintf(stdout, "%s=%s\n", field.key, field.value)
+	}
 }
 
 func runCommand(opts options.Options) string {

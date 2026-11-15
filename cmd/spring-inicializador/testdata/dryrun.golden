@@ -1,0 +1,10 @@
+group-id=com.acme
+artifact-id=billing
+name=billing
+package-name=com.acme.billing
+build=maven
+language=java
+packaging=jar
+java=17
+boot-version=4.1.2.RELEASE
+deps=web,postgresql
