@@ -154,7 +154,7 @@ func TestAllProjectFlagsNeverOpenTheForm(t *testing.T) {
 	original := runForm
 	runForm = func(cat *catalog.Catalog, provided tui.Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		formCalls++
-		return tui.RunForm(cat, provided, stdin, stdout)
+		return tui.Run(cat, provided, stdin, stdout)
 	}
 	t.Cleanup(func() { runForm = original })
 

@@ -75,38 +75,34 @@ func (m formModel) atFirstField() bool {
 	return focused.GetKey() == string(m.firstKey)
 }
 
-// RunForm asks for the project options the command line did not answer and
-// returns the options it built. provided carries the values the flags already
-// set; those rows are not asked for. stdin and stdout are the terminal handles
-// the caller wants the form on; the program owns raw mode and the alternate
-// screen while it is up.
+// Run asks for the project options the command line did not answer, then opens
+// the dependency list, and returns the options the wizard built. provided
+// carries the values the flags already set; those rows are not asked for. stdin
+// and stdout are the terminal handles the caller wants the wizard on; the
+// program owns raw mode and the alternate screen while it is up.
 //
 // When every row is already answered there is nothing to ask, so no program is
 // started at all: the options come back without touching the terminal.
 //
-// ok is false when the user aborts with ctrl+c anywhere, or with esc on the
-// first row where there is no previous row to step back to. That is not an
-// error: there is nothing to do, and the caller exits successfully without
-// writing anything.
-func RunForm(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+// The wizard ends with enter on the dependency list, the last screen this slice
+// ships; US3.2 makes that list select dependencies and VS6 adds the review step
+// that follows it.
+//
+// ok is false when the user aborts with ctrl+c on either screen, or with esc on
+// the form's first row where there is no previous row to step back to. That is
+// not an error: there is nothing to do, and the caller exits successfully
+// without writing anything.
+func Run(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 	project := newProjectForm(cat, provided)
 	if !project.asks() {
 		return optionsFromState(cat, project.state), true, nil
 	}
 
-	// huh.Form.Run normally wires these two. Running the form through our own
-	// program means keeping the same contract: enter finishes the form and
-	// ctrl+c interrupts it. esc on the first row reuses the same abort path.
-	project.form.SubmitCmd = tea.Quit
-	project.form.CancelCmd = tea.Interrupt
-
-	model, err := tea.NewProgram(
-		formModel{
-			Form:         project.form,
-			state:        &project.state,
-			packageInput: project.packageInput,
-			firstKey:     project.firstKey,
-		},
+	// The root model decides where enter and esc lead, so the form keeps its
+	// default commands (none): a completed form opens the dependency list
+	// instead of quitting the program.
+	last, err := tea.NewProgram(
+		newModel(cat, project),
 		tea.WithInput(stdin),
 		tea.WithOutput(stdout),
 	).Run()
@@ -117,16 +113,16 @@ func RunForm(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.W
 		return options.Options{}, false, nil
 	}
 	if err != nil {
-		return options.Options{}, false, fmt.Errorf("tui: running the project form: %w", err)
+		return options.Options{}, false, fmt.Errorf("tui: running the wizard: %w", err)
 	}
 
-	final, ok := model.(formModel)
+	wizard, ok := last.(model)
 	if !ok {
-		return options.Options{}, false, fmt.Errorf("tui: project form returned %T, want tui.formModel", model)
+		return options.Options{}, false, fmt.Errorf("tui: wizard returned %T, want tui.model", last)
 	}
-	if final.Form.State == huh.StateAborted {
+	if wizard.project.form != nil && wizard.project.form.State == huh.StateAborted {
 		return options.Options{}, false, nil
 	}
 
-	return optionsFromState(cat, *final.state), true, nil
+	return optionsFromState(cat, wizard.project.state), true, nil
 }

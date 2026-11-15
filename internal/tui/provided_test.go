@@ -146,10 +146,10 @@ func TestAsks(t *testing.T) {
 	}
 }
 
-// TestRunFormWithEveryFieldProvidedNeverStartsAProgram proves the form is not
-// opened when the flags answered every row: RunForm must return before touching
+// TestRunWithEveryFieldProvidedNeverStartsAProgram proves the form is not
+// opened when the flags answered every row: Run must return before touching
 // the terminal.
-func TestRunFormWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
+func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	cat := fixtureCatalog(t)
 	provided := Values{
 		KeyGroupID:     "com.acme",
@@ -182,20 +182,20 @@ func TestRunFormWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, ok, err := RunForm(cat, provided, reader, &stdout)
+		opts, ok, err := Run(cat, provided, reader, &stdout)
 		done <- result{opts, ok, err}
 	}()
 
 	select {
 	case got := <-done:
 		if got.err != nil {
-			t.Fatalf("RunForm: %v", got.err)
+			t.Fatalf("Run: %v", got.err)
 		}
 		if !got.ok {
-			t.Fatal("RunForm reported an abort for a fully answered form")
+			t.Fatal("Run reported an abort for a fully answered form")
 		}
 		if stdout.Len() != 0 {
-			t.Errorf("RunForm wrote %q to the terminal, want no program", stdout.String())
+			t.Errorf("Run wrote %q to the terminal, want no program", stdout.String())
 		}
 		if got.opts.GroupID != "com.acme" || got.opts.Build != options.BuildGradle {
 			t.Errorf("options = %+v, want the flag values", got.opts)
@@ -204,6 +204,6 @@ func TestRunFormWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 			t.Errorf("PackageName = %q, want the flag value", got.opts.PackageName)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("RunForm blocked: it may have started the form")
+		t.Fatal("Run blocked: it may have started the form")
 	}
 }

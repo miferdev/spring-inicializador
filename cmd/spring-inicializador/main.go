@@ -259,7 +259,7 @@ var interactiveStdin = func(f *os.File) bool {
 
 // runForm is the interactive form. It is a variable so a test can prove a run
 // does not open it, without needing a terminal of its own.
-var runForm = tui.RunForm
+var runForm = tui.Run
 
 // run is the whole program without process-level side effects: it reads stdin
 // only to run the interactive form, writes ASCII-only progress to stdout,
@@ -339,7 +339,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// Aborted with ctrl+c: nothing to do, nothing written.
 			return exitOK
 		}
-		// Dependencies are not a form row (VS3); --deps is their only source.
+		// The dependency screen shows the catalog but selects nothing yet
+		// (US3.2), so --deps is still the only source for dependencies.
 		chosen.Deps = splitDeps(cmd.deps)
 		opts = chosen
 	}

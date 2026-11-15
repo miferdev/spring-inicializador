@@ -79,9 +79,9 @@ func TestEscOnFirstFieldAborts(t *testing.T) {
 	}
 }
 
-// TestRunFormAbortsOnEscAtTheFirstField drives the real program with a scripted
+// TestRunAbortsOnEscAtTheFirstField drives the real program with a scripted
 // esc byte instead of a terminal: the form must report "nothing to do".
-func TestRunFormAbortsOnEscAtTheFirstField(t *testing.T) {
+func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 	cat := fixtureCatalog(t)
 
 	type result struct {
@@ -92,20 +92,20 @@ func TestRunFormAbortsOnEscAtTheFirstField(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, ok, err := RunForm(cat, nil, strings.NewReader("\x1b"), &stdout)
+		opts, ok, err := Run(cat, nil, strings.NewReader("\x1b"), &stdout)
 		done <- result{opts: opts, ok: ok, err: err}
 	}()
 
 	select {
 	case got := <-done:
 		if got.err != nil {
-			t.Fatalf("RunForm: %v", got.err)
+			t.Fatalf("Run: %v", got.err)
 		}
 		if got.ok {
-			t.Fatalf("RunForm reported ok after esc on the first row (options %+v)", got.opts)
+			t.Fatalf("Run reported ok after esc on the first row (options %+v)", got.opts)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("RunForm blocked: the scripted esc did not abort the form")
+		t.Fatal("Run blocked: the scripted esc did not abort the form")
 	}
 }
 

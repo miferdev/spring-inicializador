@@ -30,7 +30,7 @@ func TestAbortedFormWritesNothing(t *testing.T) {
 	runForm = func(cat *catalog.Catalog, provided tui.Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		formCalls++
 		// The real form, driven with a scripted esc instead of a terminal.
-		return tui.RunForm(cat, provided, strings.NewReader("\x1b"), io.Discard)
+		return tui.Run(cat, provided, strings.NewReader("\x1b"), io.Discard)
 	}
 	t.Cleanup(func() { runForm = originalForm })
 

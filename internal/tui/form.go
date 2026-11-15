@@ -110,7 +110,7 @@ type projectForm struct {
 // default, then applies the values the command line already answered: those rows
 // are left out, and their values seed the state so the resolved Options carry
 // them. It is the only constructor: tests assert on the fields it produces and
-// RunForm renders the same form.
+// Run renders the same form.
 func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
 	form := &projectForm{fields: buildFields(cat, provided)}
 	form.firstKey = firstAskedKey(form.fields)
@@ -150,6 +150,18 @@ func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
 		form.packageInput.Description(form.state.packageMarker())
 	}
 	return form
+}
+
+// reopen rebuilds the widgets over the state the form left behind. A huh form
+// that completed renders nothing and ignores every message, so a screen that
+// comes back needs a live view over the same values; the values are the state,
+// and nothing here copies them.
+func (f *projectForm) reopen() {
+	values := f.state.pointers()
+	f.form, f.packageInput = newForm(f.fields, values)
+	if f.packageInput != nil {
+		f.packageInput.Description(f.state.packageMarker())
+	}
 }
 
 // asks reports whether the form has a question left. A row the flags answered is
@@ -357,8 +369,8 @@ func (s *formState) packageMarker() string {
 // update loop pushes the derived value and the (auto) marker into.
 //
 // A form with nothing to ask has no form at all: huh panics on an empty group
-// because it always expects a selected field, and a RunForm that renders it
-// would be asking nothing anyway.
+// because it always expects a selected field, and a Run that renders it would be
+// asking nothing anyway.
 func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
 	if len(fields) == 0 {
 		return nil, nil
@@ -373,7 +385,15 @@ func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
 		}
 		widgets = append(widgets, widget)
 	}
-	return huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm()), packageInput
+
+	form := huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm())
+	if focused := form.GetFocusedField(); focused != nil {
+		// huh focuses the first row from Init, and only the program calls Init
+		// once. A form rebuilt after a screen change never sees it, so focus the
+		// first row here: typing has to reach it as soon as the form is back.
+		focused.Focus()
+	}
+	return form, packageInput
 }
 
 // widget renders one row, editing the current value through value. The key is
