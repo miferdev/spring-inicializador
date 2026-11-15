@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"github.com/miferdev/spring-inicializador/internal/catalog"
+	"github.com/miferdev/spring-inicializador/internal/options"
 )
 
 // screen identifies the screen the wizard shows. The set is closed and grows by
@@ -56,15 +57,24 @@ type model struct {
 }
 
 // newModel builds the wizard over a project form the command line already
-// answered. Everything is created once: switching screens reuses the same state
-// and the same list, so the round trip allocates nothing and loses nothing.
-func newModel(cat *catalog.Catalog, project *projectForm) model {
+// answered, with the dependency ids --deps already answered checked. Everything
+// is created once: switching screens reuses the same state and the same list, so
+// the round trip allocates nothing and loses nothing.
+func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string) model {
 	return model{
 		project: project,
 		form:    newFormModel(project),
-		deps:    newDependenciesModel(cat, defaultWidth, defaultHeight, Default()),
+		deps:    newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, Default()),
 		screen:  screenProject,
 	}
+}
+
+// finished is the options the wizard built: the project values it edited and the
+// checked dependencies, in catalog order.
+func (m model) finished(cat *catalog.Catalog) options.Options {
+	opts := optionsFromState(cat, m.project.state)
+	opts.Deps = m.deps.chosen()
+	return opts
 }
 
 // Init starts the project form. The dependency list needs no start-up command.

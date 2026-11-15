@@ -257,7 +257,7 @@ var interactiveStdin = func(f *os.File) bool {
 	return term.IsTerminal(f.Fd())
 }
 
-// runForm is the interactive form. It is a variable so a test can prove a run
+// runForm is the interactive wizard. It is a variable so a test can prove a run
 // does not open it, without needing a terminal of its own.
 var runForm = tui.Run
 
@@ -331,7 +331,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// --yes and a redirected stdin both keep a run scripted, and a run whose
 	// flags answered every row has nothing left to ask.
 	if !cmd.yes && interactiveStdin(os.Stdin) && tui.Asks(c, provided) {
-		chosen, ok, err := runForm(c, provided, os.Stdin, stdout)
+		// --deps answers the dependency screen the way the project flags answer
+		// its rows: the ids arrive already checked, and the screen decides.
+		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}
@@ -339,9 +341,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// Aborted with ctrl+c: nothing to do, nothing written.
 			return exitOK
 		}
-		// The dependency screen shows the catalog but selects nothing yet
-		// (US3.2), so --deps is still the only source for dependencies.
-		chosen.Deps = splitDeps(cmd.deps)
 		opts = chosen
 	}
 

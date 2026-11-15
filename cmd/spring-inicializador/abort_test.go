@@ -27,10 +27,10 @@ func TestAbortedFormWritesNothing(t *testing.T) {
 
 	formCalls := 0
 	originalForm := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		formCalls++
 		// The real form, driven with a scripted esc instead of a terminal.
-		return tui.Run(cat, provided, strings.NewReader("\x1b"), io.Discard)
+		return tui.Run(cat, provided, dependencies, strings.NewReader("\x1b"), io.Discard)
 	}
 	t.Cleanup(func() { runForm = originalForm })
 

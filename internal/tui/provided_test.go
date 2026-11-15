@@ -148,7 +148,7 @@ func TestAsks(t *testing.T) {
 
 // TestRunWithEveryFieldProvidedNeverStartsAProgram proves the form is not
 // opened when the flags answered every row: Run must return before touching
-// the terminal.
+// the terminal, carrying the dependencies the command line already answered.
 func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	cat := fixtureCatalog(t)
 	provided := Values{
@@ -182,7 +182,7 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, ok, err := Run(cat, provided, reader, &stdout)
+		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, reader, &stdout)
 		done <- result{opts, ok, err}
 	}()
 
@@ -202,6 +202,10 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 		}
 		if got.opts.PackageName != "com.acme.billing" {
 			t.Errorf("PackageName = %q, want the flag value", got.opts.PackageName)
+		}
+		// No screen is shown, so the dependencies are exactly the flag's answer.
+		if want := []string{"web", "data-jpa"}; !reflect.DeepEqual(got.opts.Deps, want) {
+			t.Errorf("Deps = %v, want the flag value %v", got.opts.Deps, want)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run blocked: it may have started the form")

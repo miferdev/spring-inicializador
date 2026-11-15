@@ -105,13 +105,17 @@ func TestTypingFiltersLive(t *testing.T) {
 		t.Errorf("first result = %#v, want the postgresql driver", visible[0])
 	}
 
-	// space is not a key this story owns: it must not select, navigate or filter.
-	h.press(tea.KeySpace)
-	if h.model.screen != screenDependencies {
-		t.Errorf("space left the screen (screen %v)", h.model.screen)
+	// While the query is being typed a space is a character, not a toggle: the
+	// key belongs to the filter until the list is browsing again (US3.2).
+	h.send(spaceKey())
+	if got := h.model.deps.list.FilterValue(); got != "postgres " {
+		t.Errorf("filter = %q after space, want it typed into the query", got)
 	}
 	if got := len(h.model.deps.list.VisibleItems()); got != len(visible) {
 		t.Errorf("space changed the visible rows: %d, want %d", got, len(visible))
+	}
+	if got := h.model.deps.chosen(); len(got) != 0 {
+		t.Errorf("space checked %v while the query was being typed", got)
 	}
 }
 

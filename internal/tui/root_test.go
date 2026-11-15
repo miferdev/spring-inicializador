@@ -32,9 +32,16 @@ type harness struct {
 // keystroke, and the timer proves nothing about filtering.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newSeededHarness(t)
+}
+
+// newSeededHarness builds the wizard with the dependency ids --deps already
+// answered, the way a run started with --deps enters it.
+func newSeededHarness(t *testing.T, dependencies ...string) *harness {
+	t.Helper()
 
 	cat := fixtureCatalog(t)
-	root := newModel(cat, newProjectForm(cat, nil))
+	root := newModel(cat, newProjectForm(cat, nil), dependencies)
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
 	next, _ := root.Update(tea.WindowSizeMsg{Width: 120, Height: 30})

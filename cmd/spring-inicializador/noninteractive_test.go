@@ -32,9 +32,9 @@ func TestRedirectedStdinNeverOpensTheForm(t *testing.T) {
 
 	formCalls := 0
 	originalForm := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		formCalls++
-		return tui.Run(cat, provided, stdin, stdout)
+		return tui.Run(cat, provided, dependencies, stdin, stdout)
 	}
 	t.Cleanup(func() { runForm = originalForm })
 

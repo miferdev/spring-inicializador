@@ -77,32 +77,37 @@ func (m formModel) atFirstField() bool {
 
 // Run asks for the project options the command line did not answer, then opens
 // the dependency list, and returns the options the wizard built. provided
-// carries the values the flags already set; those rows are not asked for. stdin
-// and stdout are the terminal handles the caller wants the wizard on; the
-// program owns raw mode and the alternate screen while it is up.
+// carries the project values the flags already set, and dependencies carries the
+// ids --deps already answered: those rows are not asked for, and those
+// dependencies open checked, so a flag answers its screen either way. stdin and
+// stdout are the terminal handles the caller wants the wizard on; the program
+// owns raw mode and the alternate screen while it is up.
 //
-// When every row is already answered there is nothing to ask, so no program is
-// started at all: the options come back without touching the terminal.
+// When every project row is already answered there is nothing to ask, so no
+// program is started at all: the options come back without touching the
+// terminal, with the dependencies exactly as the flags gave them.
 //
 // The wizard ends with enter on the dependency list, the last screen this slice
-// ships; US3.2 makes that list select dependencies and VS6 adds the review step
-// that follows it.
+// ships; it returns the checked dependencies in catalog order. US3.3 measures
+// that list and VS6 adds the review step that follows it.
 //
 // ok is false when the user aborts with ctrl+c on either screen, or with esc on
 // the form's first row where there is no previous row to step back to. That is
 // not an error: there is nothing to do, and the caller exits successfully
 // without writing anything.
-func Run(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+func Run(cat *catalog.Catalog, provided Values, dependencies []string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 	project := newProjectForm(cat, provided)
 	if !project.asks() {
-		return optionsFromState(cat, project.state), true, nil
+		opts := optionsFromState(cat, project.state)
+		opts.Deps = dependencies
+		return opts, true, nil
 	}
 
 	// The root model decides where enter and esc lead, so the form keeps its
 	// default commands (none): a completed form opens the dependency list
 	// instead of quitting the program.
 	last, err := tea.NewProgram(
-		newModel(cat, project),
+		newModel(cat, project, dependencies),
 		tea.WithInput(stdin),
 		tea.WithOutput(stdout),
 	).Run()
@@ -124,5 +129,5 @@ func Run(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.Write
 		return options.Options{}, false, nil
 	}
 
-	return optionsFromState(cat, wizard.project.state), true, nil
+	return wizard.finished(cat), true, nil
 }
