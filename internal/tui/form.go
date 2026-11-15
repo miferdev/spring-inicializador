@@ -70,7 +70,19 @@ type formState struct {
 	Packaging   string
 	JavaVersion string
 	BootVersion string
+
+	// The package field follows group and artifact until a human edits it.
+	// packageAuto says whether it still does, and derivedPackage is the last
+	// value derivation wrote: comparing the field against it is how an edit is
+	// detected, since huh emits no per-field change event.
+	packageAuto    bool
+	derivedPackage string
 }
+
+// autoMarker is the visible sign that the package field is derived rather than
+// typed. It is a field description, never part of the value, so copying the
+// field yields a package name the server accepts.
+const autoMarker = "(auto)"
 
 // projectForm is the project form: the field descriptions, the state they
 // edit, and the huh form that renders them.
@@ -78,6 +90,11 @@ type projectForm struct {
 	fields []field
 	state  formState
 	form   *huh.Form
+
+	// packageInput is the package row. The update loop needs it to show a
+	// freshly derived value and the (auto) marker, because huh's input keeps a
+	// second copy of the text.
+	packageInput *huh.Input
 }
 
 // newProjectForm builds the form from the catalog and starts every row on its
@@ -93,7 +110,14 @@ func newProjectForm(cat *catalog.Catalog) *projectForm {
 		}
 	}
 
-	form.form = newForm(form.fields, values)
+	// The seeded package name counts as the first derived value: until a human
+	// types something else, the field follows group and artifact.
+	form.state.armPackage()
+
+	form.form, form.packageInput = newForm(form.fields, values)
+	if form.packageInput != nil {
+		form.packageInput.Description(form.state.packageMarker())
+	}
 	return form
 }
 
@@ -209,14 +233,65 @@ func (s *formState) pointers() map[fieldKey]*string {
 	}
 }
 
-// newForm renders the described fields as one huh form, in one group so every
-// row stays on a single page.
-func newForm(fields []field, values map[fieldKey]*string) *huh.Form {
-	widgets := make([]huh.Field, 0, len(fields))
-	for _, f := range fields {
-		widgets = append(widgets, f.widget(values[f.key]))
+// armPackage marks the current package value as derived, so the next change to
+// the identifiers recomputes it. It is the first step of the derivation rule.
+func (s *formState) armPackage() {
+	s.packageAuto = true
+	s.derivedPackage = s.PackageName
+}
+
+// followPackage repeats the package derivation after a form update. huh emits no
+// "this field was edited" event, so an edit is detected by comparison: while the
+// field still holds the value derivation last wrote, group and artifact keep
+// winning; anything else means a human typed, and derivation stops for the rest
+// of the session. An empty field re-arms it and is filled again immediately, so
+// an empty package name never reaches the request.
+//
+// It reports whether it wrote a new value, because huh's input owns a second
+// copy of the text and has to be resynchronised when that happens.
+func (s *formState) followPackage() bool {
+	switch {
+	case s.PackageName == "":
+		s.packageAuto = true
+	case s.PackageName != s.derivedPackage:
+		s.packageAuto = false
 	}
-	return huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm())
+	if !s.packageAuto {
+		return false
+	}
+
+	derived := options.DerivePackageName(s.GroupID, s.ArtifactID)
+	if derived == s.PackageName {
+		return false
+	}
+	s.PackageName = derived
+	s.derivedPackage = derived
+	return true
+}
+
+// packageMarker is the description shown under the package field while its
+// value is derived, and empty once a human owns it.
+func (s *formState) packageMarker() string {
+	if s.packageAuto {
+		return autoMarker
+	}
+	return ""
+}
+
+// newForm renders the described fields as one huh form, in one group so every
+// row stays on a single page. It also returns the package input, which the
+// update loop pushes the derived value and the (auto) marker into.
+func newForm(fields []field, values map[fieldKey]*string) (*huh.Form, *huh.Input) {
+	widgets := make([]huh.Field, 0, len(fields))
+	var packageInput *huh.Input
+	for _, f := range fields {
+		widget := f.widget(values[f.key])
+		if f.key == fieldPackageName {
+			packageInput, _ = widget.(*huh.Input)
+		}
+		widgets = append(widgets, widget)
+	}
+	return huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm()), packageInput
 }
 
 // widget renders one row, editing the current value through value.
