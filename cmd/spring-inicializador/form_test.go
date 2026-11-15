@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/miferdev/spring-inicializador/internal/tui"
 )
 
 // pipeStdin replaces os.Stdin with the read end of a pipe nobody ever writes
@@ -96,34 +98,50 @@ func TestRunNonTerminalStdinSkipsForm(t *testing.T) {
 	assertNoANSI(t, stdout.String())
 }
 
-// TestMayPrompt pins the flag half of the gate: a generation flag answers part
-// of the form, so the run must not prompt for the rest.
-func TestMayPrompt(t *testing.T) {
+// TestProvidedByFlags pins the flag-to-row mapping the form uses: every project
+// flag answers exactly one row, and --deps answers none because the dependency
+// pane belongs to VS3.
+func TestProvidedByFlags(t *testing.T) {
 	cases := []struct {
-		name string
-		args []string
-		yes  bool
-		want bool
+		args  []string
+		key   tui.Key
+		value string
 	}{
-		{"no arguments", nil, false, true},
-		{"--yes", []string{"--yes"}, true, false},
-		{"--group-id", []string{"--group-id", "com.acme"}, false, false},
-		{"--artifact-id", []string{"--artifact-id", "billing"}, false, false},
-		{"--deps", []string{"--deps", "web"}, false, false},
-		{"--output", []string{"--output", "out"}, false, true},
-		{"--force", []string{"--force"}, false, true},
-		{"--server", []string{"--server", "http://127.0.0.1:1"}, false, true},
+		{[]string{"--group-id", "com.acme"}, tui.KeyGroupID, "com.acme"},
+		{[]string{"--artifact-id", "billing"}, tui.KeyArtifactID, "billing"},
+		{[]string{"--name", "billing"}, tui.KeyName, "billing"},
+		{[]string{"--package-name", "org.custom"}, tui.KeyPackageName, "org.custom"},
+		{[]string{"--build", "gradle"}, tui.KeyBuild, "gradle"},
+		{[]string{"--language", "kotlin"}, tui.KeyLanguage, "kotlin"},
+		{[]string{"--packaging", "war"}, tui.KeyPackaging, "war"},
+		{[]string{"--java", "21"}, tui.KeyJavaVersion, "21"},
+		{[]string{"--boot-version", "4.0.9.RELEASE"}, tui.KeyBootVersion, "4.0.9.RELEASE"},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			flags, _ := newFlagSet(io.Discard)
+		t.Run(string(tc.key), func(t *testing.T) {
+			flags, cmd := newFlagSet(io.Discard)
 			if err := flags.Parse(tc.args); err != nil {
 				t.Fatalf("Parse(%v): %v", tc.args, err)
 			}
-			if got := mayPrompt(passedFlags(flags), tc.yes); got != tc.want {
-				t.Errorf("mayPrompt(%v, %v) = %v, want %v", tc.args, tc.yes, got, tc.want)
+
+			provided := providedByFlags(cmd, passedFlags(flags))
+			if len(provided) != 1 {
+				t.Fatalf("providedByFlags(%v) = %v, want exactly one row", tc.args, provided)
+			}
+			if got := provided[tc.key]; got != tc.value {
+				t.Errorf("provided[%q] = %q, want %q", tc.key, got, tc.value)
 			}
 		})
 	}
+
+	t.Run("deps answers no row", func(t *testing.T) {
+		flags, cmd := newFlagSet(io.Discard)
+		if err := flags.Parse([]string{"--deps", "web,data-jpa"}); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if provided := providedByFlags(cmd, passedFlags(flags)); len(provided) != 0 {
+			t.Errorf("providedByFlags(--deps) = %v, want no form row", provided)
+		}
+	})
 }

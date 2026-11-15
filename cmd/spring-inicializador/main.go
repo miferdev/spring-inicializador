@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,14 +52,21 @@ Flags:
   --force            Overwrite an existing output directory
   --group-id ID      Project group id (default: from server metadata)
   --artifact-id ID   Project artifact id (default: from server metadata)
+  --name NAME        Project name (default: artifact id)
+  --package-name ID  Package name (default: derived from group and artifact)
+  --build TYPE       Build tool: maven, gradle, gradle-kotlin (default "maven")
+  --language LANG    Language: java, kotlin, groovy (default: from server metadata)
+  --packaging PKG    Packaging: jar, war (default: from server metadata)
+  --java VERSION     Java version, e.g. 21 (default: from server metadata)
+  --boot-version VER Spring Boot version, e.g. 4.1.2.RELEASE (default: server default)
   --server URL       Initializr base URL for metadata and generation
                      (default "https://start.spring.io")
   --yes              Run without prompting, taking defaults
   --version          Print the version and exit
   --help, -h         Print this help and exit
 
-With no project flag, no --yes and a terminal on stdin, it asks for the
-project options interactively. Anything else stays non-interactive.
+On a terminal, without --yes, it asks for every project option a flag did not
+provide. Anything else stays non-interactive.
 
 The archive is extracted into <output>/<artifact-id>.
 
@@ -70,17 +78,25 @@ func main() {
 }
 
 // commandLine is the parsed command line. One struct keeps every flag, its
-// default and its documentation together as US2.3 adds one per form field.
+// default and its documentation together: each project flag answers exactly the
+// form row of the same name.
 type commandLine struct {
-	deps       string
-	output     string
-	force      bool
-	groupID    string
-	artifactID string
-	server     string
-	yes        bool
-	version    bool
-	help       bool
+	deps        string
+	output      string
+	force       bool
+	groupID     string
+	artifactID  string
+	name        string
+	packageName string
+	build       string
+	language    string
+	packaging   string
+	javaVersion string
+	bootVersion string
+	server      string
+	yes         bool
+	version     bool
+	help        bool
 }
 
 // newFlagSet registers the documented flags. It is separate from run so tests
@@ -96,6 +112,13 @@ func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags.BoolVar(&cmd.force, "force", false, "overwrite an existing output directory")
 	flags.StringVar(&cmd.groupID, "group-id", "", "project group id (default: from server metadata)")
 	flags.StringVar(&cmd.artifactID, "artifact-id", "", "project artifact id (default: from server metadata)")
+	flags.StringVar(&cmd.name, "name", "", "project name (default: artifact id)")
+	flags.StringVar(&cmd.packageName, "package-name", "", "package name (default: derived from group and artifact)")
+	flags.StringVar(&cmd.build, "build", "", "build tool: maven, gradle, gradle-kotlin (default: maven)")
+	flags.StringVar(&cmd.language, "language", "", "language: java, kotlin, groovy (default: from server metadata)")
+	flags.StringVar(&cmd.packaging, "packaging", "", "packaging: jar, war (default: from server metadata)")
+	flags.StringVar(&cmd.javaVersion, "java", "", "Java version, e.g. 21 (default: from server metadata)")
+	flags.StringVar(&cmd.bootVersion, "boot-version", "", "Spring Boot version, e.g. 4.1.2.RELEASE (default: server default)")
 	flags.StringVar(&cmd.server, "server", defaultServer, "Initializr base URL for metadata and generation")
 	flags.BoolVar(&cmd.yes, "yes", false, "run without prompting, taking defaults")
 	flags.BoolVar(&cmd.version, "version", false, "print the version and exit")
@@ -103,11 +126,6 @@ func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags.BoolVar(&cmd.help, "h", false, "print this help and exit (shorthand)")
 	return flags, cmd
 }
-
-// formFlags are the flags whose value already answers a row of the form.
-// Passing one means the user is scripting the run, so the form must not open
-// and ask for the rest.
-var formFlags = []string{"group-id", "artifact-id", "deps"}
 
 // passedFlags returns the names of the flags the user actually set, so a
 // default value is never mistaken for a choice.
@@ -117,19 +135,111 @@ func passedFlags(flags *flag.FlagSet) map[string]bool {
 	return passed
 }
 
-// mayPrompt reports whether the flag half of the gate allows the form: --yes is
-// off and no flag answered a field already. The caller still has to check that
-// stdin is a terminal, because a pipe must never wait for a keypress.
-func mayPrompt(passed map[string]bool, yes bool) bool {
-	if yes {
-		return false
+// providedByFlags maps each project field the command line answered to the
+// value it set. The form leaves those rows out and keeps the values. --deps is
+// absent on purpose: the dependency pane belongs to VS3, not to this form.
+func providedByFlags(cmd *commandLine, passed map[string]bool) tui.Values {
+	provided := tui.Values{}
+	if passed["group-id"] {
+		provided[tui.KeyGroupID] = strings.TrimSpace(cmd.groupID)
 	}
-	for _, name := range formFlags {
-		if passed[name] {
-			return false
+	if passed["artifact-id"] {
+		provided[tui.KeyArtifactID] = strings.TrimSpace(cmd.artifactID)
+	}
+	if passed["name"] {
+		provided[tui.KeyName] = strings.TrimSpace(cmd.name)
+	}
+	if passed["package-name"] {
+		provided[tui.KeyPackageName] = strings.TrimSpace(cmd.packageName)
+	}
+	if passed["build"] {
+		provided[tui.KeyBuild] = cmd.build
+	}
+	if passed["language"] {
+		provided[tui.KeyLanguage] = cmd.language
+	}
+	if passed["packaging"] {
+		provided[tui.KeyPackaging] = cmd.packaging
+	}
+	if passed["java"] {
+		provided[tui.KeyJavaVersion] = cmd.javaVersion
+	}
+	if passed["boot-version"] {
+		provided[tui.KeyBootVersion] = cmd.bootVersion
+	}
+	return provided
+}
+
+// validateVocabulary rejects a value from this tool's own vocabulary before any
+// request: a typo should not cost a round trip, and the server would only echo
+// the same refusal back.
+func validateVocabulary(cmd *commandLine, passed map[string]bool) error {
+	checks := []struct {
+		flag     string
+		value    string
+		accepted []string
+	}{
+		{"build", cmd.build, options.Builds()},
+		{"language", cmd.language, options.Languages()},
+		{"packaging", cmd.packaging, options.Packagings()},
+	}
+
+	for _, check := range checks {
+		if !passed[check.flag] {
+			continue
+		}
+		if !slices.Contains(check.accepted, check.value) {
+			return fmt.Errorf("--%s %q is not valid; accepted: %s",
+				check.flag, check.value, strings.Join(check.accepted, ", "))
 		}
 	}
-	return true
+	return nil
+}
+
+// validatePublished rejects a value only the server can vouch for. It runs on
+// the fetched catalog, before generation, so the message names the versions that
+// actually exist instead of relaying a 400 from the server.
+func validatePublished(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) error {
+	checks := []struct {
+		flag      string
+		value     string
+		published catalog.Select
+	}{
+		{"java", cmd.javaVersion, c.JavaVersion},
+		{"boot-version", cmd.bootVersion, c.BootVersion},
+	}
+
+	for _, check := range checks {
+		if !passed[check.flag] {
+			continue
+		}
+		if !publishedChoice(check.published, check.value) {
+			return fmt.Errorf("--%s %q is not published by the server; published: %s",
+				check.flag, check.value, choiceIDs(check.published))
+		}
+	}
+	return nil
+}
+
+func publishedChoice(sel catalog.Select, id string) bool {
+	for _, value := range sel.Values {
+		if value.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func choiceIDs(sel catalog.Select) string {
+	if len(sel.Values) == 0 {
+		return "none"
+	}
+
+	ids := make([]string, 0, len(sel.Values))
+	for _, value := range sel.Values {
+		ids = append(ids, value.ID)
+	}
+	return strings.Join(ids, ", ")
 }
 
 // isTerminal reports whether f is a character device, the standard-library
@@ -142,6 +252,10 @@ func isTerminal(f *os.File) bool {
 	}
 	return info.Mode()&os.ModeCharDevice != 0
 }
+
+// runForm is the interactive form. It is a variable so a test can prove a run
+// does not open it, without needing a terminal of its own.
+var runForm = tui.RunForm
 
 // run is the whole program without process-level side effects: it reads stdin
 // only to run the interactive form, writes ASCII-only progress to stdout,
@@ -172,6 +286,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	passed := passedFlags(flags)
+
+	// The tool's own vocabulary is checked before any request: a typo must not
+	// cost a round trip.
+	if err := validateVocabulary(cmd, passed); err != nil {
+		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
+		return exitUsage
+	}
+
 	// One base URL for both endpoints. A malformed --server is a usage error
 	// and fails before any request is built.
 	baseURL, err := catalog.NormalizeBaseURL(cmd.server)
@@ -190,21 +313,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, err)
 	}
 
-	opts := resolve(c, cmd.groupID, cmd.artifactID, cmd.deps)
+	// --java and --boot-version are the server's vocabulary: now that the catalog
+	// is here, check them against what it published, before generation.
+	if err := validatePublished(c, cmd, passed); err != nil {
+		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
+		return exitUsage
+	}
 
-	// The form is the default interaction, but only when a person is there to
-	// answer it: no generation flag already answered a field, --yes is off and
-	// stdin is a terminal. A pipe or a redirection keeps the old, fully
-	// scriptable path unchanged.
-	if mayPrompt(passedFlags(flags), cmd.yes) && isTerminal(os.Stdin) {
-		chosen, ok, err := tui.RunForm(c, os.Stdin, stdout)
+	opts := resolve(c, cmd, passed)
+	provided := providedByFlags(cmd, passed)
+
+	// On a terminal the form asks for exactly what the flags did not answer.
+	// --yes and a redirected stdin both keep a run scripted, and a run whose
+	// flags answered every row has nothing left to ask.
+	if !cmd.yes && isTerminal(os.Stdin) && tui.Asks(c, provided) {
+		chosen, ok, err := runForm(c, provided, os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}
 		if !ok {
-			// Aborted with esc or ctrl+c: nothing to do, nothing written.
+			// Aborted with ctrl+c: nothing to do, nothing written.
 			return exitOK
 		}
+		// Dependencies are not a form row (VS3); --deps is their only source.
+		chosen.Deps = splitDeps(cmd.deps)
 		opts = chosen
 	}
 
@@ -230,27 +362,45 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// resolve starts from the metadata defaults and applies the identifier flags.
-// When either identifier changes, the name and package name that were derived
-// from the defaults follow it, so the project stays internally consistent.
-func resolve(c *catalog.Catalog, groupID, artifactID, deps string) options.Options {
+// resolve starts from the metadata defaults and applies every value the command
+// line gave, so a scripted run asks the server for exactly what was typed.
+func resolve(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) options.Options {
 	defaults := options.Defaults(c)
 	opts := defaults
 
-	if groupID != "" {
-		opts.GroupID = strings.TrimSpace(groupID)
-	}
-	if artifactID != "" {
-		opts.ArtifactID = strings.TrimSpace(artifactID)
-		if opts.Name == defaults.ArtifactID {
-			opts.Name = opts.ArtifactID
+	for key, value := range providedByFlags(cmd, passed) {
+		switch key {
+		case tui.KeyGroupID:
+			opts.GroupID = value
+		case tui.KeyArtifactID:
+			opts.ArtifactID = value
+		case tui.KeyName:
+			opts.Name = value
+		case tui.KeyPackageName:
+			opts.PackageName = value
+		case tui.KeyBuild:
+			opts.Build = value
+		case tui.KeyLanguage:
+			opts.Language = value
+		case tui.KeyPackaging:
+			opts.Packaging = value
+		case tui.KeyJavaVersion:
+			opts.JavaVersion = value
+		case tui.KeyBootVersion:
+			opts.BootVersion = value
 		}
 	}
-	if groupID != "" || artifactID != "" {
+
+	// When the artifact id moves and nobody named the project, the name and the
+	// package follow it, so the request stays internally consistent.
+	if passed["artifact-id"] && !passed["name"] && opts.Name == defaults.ArtifactID {
+		opts.Name = opts.ArtifactID
+	}
+	if !passed["package-name"] && (passed["group-id"] || passed["artifact-id"]) {
 		opts.PackageName = options.DerivePackageName(opts.GroupID, opts.ArtifactID)
 	}
 
-	opts.Deps = splitDeps(deps)
+	opts.Deps = splitDeps(cmd.deps)
 	return opts
 }
 

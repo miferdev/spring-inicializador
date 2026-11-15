@@ -14,20 +14,57 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/catalog"
 )
 
-// Build identifiers accepted on the command line and in the form.
+// Build identifiers accepted on the command line and in the form, in the order
+// the help text documents them.
 const (
 	BuildMaven        = "maven"
 	BuildGradle       = "gradle"
 	BuildGradleKotlin = "gradle-kotlin"
 )
 
+// Language identifiers accepted by --language.
+const (
+	LanguageJava   = "java"
+	LanguageKotlin = "kotlin"
+	LanguageGroovy = "groovy"
+)
+
+// Packaging identifiers accepted by --packaging.
+const (
+	PackagingJar = "jar"
+	PackagingWar = "war"
+)
+
 // buildTypes is the only place that knows how a build name becomes a metadata
 // `type` id and back. BuildType and BuildName read the same table, so the flag
-// and the form cannot disagree about what a build is called.
-var buildTypes = map[string]string{
-	BuildMaven:        "maven-project",
-	BuildGradle:       "gradle-project",
-	BuildGradleKotlin: "gradle-project-kotlin",
+// and the form cannot disagree about what a build is called. The order is the
+// order the help text and the error messages show.
+var buildTypes = []struct {
+	name   string
+	typeID string
+}{
+	{BuildMaven, "maven-project"},
+	{BuildGradle, "gradle-project"},
+	{BuildGradleKotlin, "gradle-project-kotlin"},
+}
+
+// Builds returns the accepted --build values, in documentation order.
+func Builds() []string {
+	builds := make([]string, 0, len(buildTypes))
+	for _, build := range buildTypes {
+		builds = append(builds, build.name)
+	}
+	return builds
+}
+
+// Languages returns the accepted --language values, in documentation order.
+func Languages() []string {
+	return []string{LanguageJava, LanguageKotlin, LanguageGroovy}
+}
+
+// Packagings returns the accepted --packaging values, in documentation order.
+func Packagings() []string {
+	return []string{PackagingJar, PackagingWar}
 }
 
 // Options is one project request. Every field is a plain string because every
@@ -136,7 +173,12 @@ func (o Options) Form() url.Values {
 // values. An unknown build yields an empty type on purpose: the server rejects
 // it with its own message instead of the client inventing a value.
 func (o Options) BuildType() string {
-	return buildTypes[o.Build]
+	for _, build := range buildTypes {
+		if build.name == o.Build {
+			return build.typeID
+		}
+	}
+	return ""
 }
 
 // BuildName is the inverse of BuildType: it turns a metadata `type` id into the
@@ -145,9 +187,9 @@ func (o Options) BuildType() string {
 // which return a single file instead of a project; they have no build name
 // here on purpose, so no frontend can offer them as an archive.
 func BuildName(typeID string) (string, bool) {
-	for build, id := range buildTypes {
-		if id == typeID {
-			return build, true
+	for _, build := range buildTypes {
+		if build.typeID == typeID {
+			return build.name, true
 		}
 	}
 	return "", false

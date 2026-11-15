@@ -11,21 +11,26 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/options"
 )
 
-// fieldKey identifies one row of the project form. The set is closed: every key
+// Key identifies one row of the project form. The set is closed: every key
 // maps to exactly one field of formState.
-type fieldKey string
+type Key string
 
 const (
-	fieldGroupID     fieldKey = "groupId"
-	fieldArtifactID  fieldKey = "artifactId"
-	fieldName        fieldKey = "name"
-	fieldPackageName fieldKey = "packageName"
-	fieldBuild       fieldKey = "build"
-	fieldLanguage    fieldKey = "language"
-	fieldPackaging   fieldKey = "packaging"
-	fieldJavaVersion fieldKey = "javaVersion"
-	fieldBootVersion fieldKey = "bootVersion"
+	KeyGroupID     Key = "groupId"
+	KeyArtifactID  Key = "artifactId"
+	KeyName        Key = "name"
+	KeyPackageName Key = "packageName"
+	KeyBuild       Key = "build"
+	KeyLanguage    Key = "language"
+	KeyPackaging   Key = "packaging"
+	KeyJavaVersion Key = "javaVersion"
+	KeyBootVersion Key = "bootVersion"
 )
+
+// Values are the project values the command line already answered, keyed by the
+// row they replace. A key present here is not asked for: the form leaves that
+// row out and the value stays exactly as given.
+type Values map[Key]string
 
 // fieldKind says which widget renders a row.
 type fieldKind int
@@ -50,7 +55,7 @@ type choice struct {
 // catalog without a terminal, so tests can assert what the form offers and
 // newForm is the only place that turns it into widgets.
 type field struct {
-	key     fieldKey
+	key     Key
 	label   string
 	kind    fieldKind
 	initial string
@@ -98,10 +103,12 @@ type projectForm struct {
 }
 
 // newProjectForm builds the form from the catalog and starts every row on its
-// default. It is the only constructor: tests assert on the fields it produces
-// and RunForm renders the same form.
-func newProjectForm(cat *catalog.Catalog) *projectForm {
-	form := &projectForm{fields: buildFields(cat)}
+// default, then applies the values the command line already answered: those rows
+// are left out, and their values seed the state so the resolved Options carry
+// them. It is the only constructor: tests assert on the fields it produces and
+// RunForm renders the same form.
+func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
+	form := &projectForm{fields: buildFields(cat, provided)}
 
 	values := form.state.pointers()
 	for _, f := range form.fields {
@@ -109,10 +116,29 @@ func newProjectForm(cat *catalog.Catalog) *projectForm {
 			*value = f.initial
 		}
 	}
+	for key, value := range provided {
+		if ptr, ok := values[key]; ok {
+			*ptr = value
+		}
+	}
 
-	// The seeded package name counts as the first derived value: until a human
-	// types something else, the field follows group and artifact.
-	form.state.armPackage()
+	if _, answered := provided[KeyPackageName]; answered {
+		// The human decided the package name: derivation stays off and nothing
+		// later may replace it.
+		form.state.packageAuto = false
+	} else {
+		// The seeded package name counts as the first derived value: until a
+		// human types something else, the field follows group and artifact.
+		form.state.armPackage()
+
+		// Identifiers that came from flags are already typed as far as the form
+		// is concerned, so the first frame shows the name they derive.
+		_, group := provided[KeyGroupID]
+		_, artifact := provided[KeyArtifactID]
+		if group || artifact {
+			form.state.followPackage()
+		}
+	}
 
 	form.form, form.packageInput = newForm(form.fields, values)
 	if form.packageInput != nil {
@@ -121,10 +147,33 @@ func newProjectForm(cat *catalog.Catalog) *projectForm {
 	return form
 }
 
-// buildFields describes the project form in display order. Every offering comes
-// from the catalog, so a server that stops publishing a value stops offering
-// it: no option value is written into source code.
-func buildFields(cat *catalog.Catalog) []field {
+// asks reports whether the form has a question left. A row the flags answered is
+// gone, and a metadata gap is a note rather than a question.
+func (f *projectForm) asks() bool {
+	return asksFields(f.fields)
+}
+
+// Asks reports whether the form still has a question for the values the command
+// line already answered. When it returns false there is nothing to render, and a
+// run must not wait for a keypress.
+func Asks(cat *catalog.Catalog, provided Values) bool {
+	return asksFields(buildFields(cat, provided))
+}
+
+func asksFields(fields []field) bool {
+	for _, field := range fields {
+		if field.kind != fieldNote {
+			return true
+		}
+	}
+	return false
+}
+
+// buildFields describes the project form in display order, skipping the rows the
+// command line already answered. Every offering comes from the catalog, so a
+// server that stops publishing a value stops offering it: no option value is
+// written into source code.
+func buildFields(cat *catalog.Catalog, provided Values) []field {
 	// A catalog with nothing in it behaves like a server that published no
 	// metadata at all: every select degrades to a note.
 	if cat == nil {
@@ -132,27 +181,36 @@ func buildFields(cat *catalog.Catalog) []field {
 	}
 
 	defaults := options.Defaults(cat)
-	return []field{
-		textField(fieldGroupID, "Group", defaults.GroupID),
-		textField(fieldArtifactID, "Artifact", defaults.ArtifactID),
-		textField(fieldName, "Name", defaults.Name),
-		textField(fieldPackageName, "Package", defaults.PackageName),
-		selectField(fieldBuild, "Build", buildChoices(cat), options.BuildMaven),
-		selectField(fieldLanguage, "Language", catalogChoices(cat.Language), cat.Language.Default),
-		selectField(fieldPackaging, "Packaging", catalogChoices(cat.Packaging), cat.Packaging.Default),
-		selectField(fieldJavaVersion, "Java", catalogChoices(cat.JavaVersion), cat.JavaVersion.Default),
-		selectField(fieldBootVersion, "Boot", catalogChoices(cat.BootVersion), cat.BootVersion.Default),
+	all := []field{
+		textField(KeyGroupID, "Group", defaults.GroupID),
+		textField(KeyArtifactID, "Artifact", defaults.ArtifactID),
+		textField(KeyName, "Name", defaults.Name),
+		textField(KeyPackageName, "Package", defaults.PackageName),
+		selectField(KeyBuild, "Build", buildChoices(cat), options.BuildMaven),
+		selectField(KeyLanguage, "Language", catalogChoices(cat.Language), cat.Language.Default),
+		selectField(KeyPackaging, "Packaging", catalogChoices(cat.Packaging), cat.Packaging.Default),
+		selectField(KeyJavaVersion, "Java", catalogChoices(cat.JavaVersion), cat.JavaVersion.Default),
+		selectField(KeyBootVersion, "Boot", catalogChoices(cat.BootVersion), cat.BootVersion.Default),
 	}
+
+	fields := make([]field, 0, len(all))
+	for _, field := range all {
+		if _, answered := provided[field.key]; answered {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
 }
 
-func textField(key fieldKey, label, initial string) field {
+func textField(key Key, label, initial string) field {
 	return field{key: key, label: label, kind: fieldText, initial: initial}
 }
 
 // selectField offers choices in the order given and starts on preferred. A
 // select without choices cannot be shown as a picker, so it becomes a note, and
 // the value stays empty so the server applies its own default.
-func selectField(key fieldKey, label string, choices []choice, preferred string) field {
+func selectField(key Key, label string, choices []choice, preferred string) field {
 	if len(choices) == 0 {
 		return field{key: key, label: label, kind: fieldNote, note: missingNote(label)}
 	}
@@ -219,17 +277,17 @@ func catalogChoices(sel catalog.Select) []choice {
 // pointers maps every field key to the state field that stores it. It is the
 // one place that binds a form row to formState, so adding a row means adding a
 // line here and nothing else.
-func (s *formState) pointers() map[fieldKey]*string {
-	return map[fieldKey]*string{
-		fieldGroupID:     &s.GroupID,
-		fieldArtifactID:  &s.ArtifactID,
-		fieldName:        &s.Name,
-		fieldPackageName: &s.PackageName,
-		fieldBuild:       &s.Build,
-		fieldLanguage:    &s.Language,
-		fieldPackaging:   &s.Packaging,
-		fieldJavaVersion: &s.JavaVersion,
-		fieldBootVersion: &s.BootVersion,
+func (s *formState) pointers() map[Key]*string {
+	return map[Key]*string{
+		KeyGroupID:     &s.GroupID,
+		KeyArtifactID:  &s.ArtifactID,
+		KeyName:        &s.Name,
+		KeyPackageName: &s.PackageName,
+		KeyBuild:       &s.Build,
+		KeyLanguage:    &s.Language,
+		KeyPackaging:   &s.Packaging,
+		KeyJavaVersion: &s.JavaVersion,
+		KeyBootVersion: &s.BootVersion,
 	}
 }
 
@@ -281,12 +339,20 @@ func (s *formState) packageMarker() string {
 // newForm renders the described fields as one huh form, in one group so every
 // row stays on a single page. It also returns the package input, which the
 // update loop pushes the derived value and the (auto) marker into.
-func newForm(fields []field, values map[fieldKey]*string) (*huh.Form, *huh.Input) {
+//
+// A form with nothing to ask has no form at all: huh panics on an empty group
+// because it always expects a selected field, and a RunForm that renders it
+// would be asking nothing anyway.
+func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
 	widgets := make([]huh.Field, 0, len(fields))
 	var packageInput *huh.Input
 	for _, f := range fields {
 		widget := f.widget(values[f.key])
-		if f.key == fieldPackageName {
+		if f.key == KeyPackageName {
 			packageInput, _ = widget.(*huh.Input)
 		}
 		widgets = append(widgets, widget)

@@ -25,33 +25,42 @@ type formModel struct {
 
 // Update delegates to the form and then lets the state react to the new values.
 // This is the only place the derivation is driven; the rule itself lives in
-// formState.followPackage.
+// formState.followPackage. When the package row is not asked for there is no
+// widget to keep in sync, and a value the command line supplied is never touched.
 func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd := m.Form.Update(msg)
 	if form, ok := updated.(*huh.Form); ok {
 		m.Form = form
 	}
 
-	if m.state.followPackage() && m.packageInput != nil {
-		// huh's input owns a second copy of the text: a value written behind
-		// its back has to be pushed in, or the next blur overwrites the state.
-		m.packageInput.Value(&m.state.PackageName)
-	}
 	if m.packageInput != nil {
+		if m.state.followPackage() {
+			// huh's input owns a second copy of the text: a value written behind
+			// its back has to be pushed in, or the next blur overwrites the state.
+			m.packageInput.Value(&m.state.PackageName)
+		}
 		m.packageInput.Description(m.state.packageMarker())
 	}
 
 	return m, cmd
 }
 
-// RunForm shows the project form and returns the options it built. stdin and
-// stdout are the terminal handles the caller wants the form on; the program
-// owns raw mode and the alternate screen while it is up.
+// RunForm asks for the project options the command line did not answer and
+// returns the options it built. provided carries the values the flags already
+// set; those rows are not asked for. stdin and stdout are the terminal handles
+// the caller wants the form on; the program owns raw mode and the alternate
+// screen while it is up.
+//
+// When every row is already answered there is nothing to ask, so no program is
+// started at all: the options come back without touching the terminal.
 //
 // ok is false when the user aborts with ctrl+c. That is not an error: there is
 // nothing to do, and the caller exits successfully without writing anything.
-func RunForm(cat *catalog.Catalog, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
-	project := newProjectForm(cat)
+func RunForm(cat *catalog.Catalog, provided Values, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	project := newProjectForm(cat, provided)
+	if !project.asks() {
+		return optionsFromState(cat, project.state), true, nil
+	}
 
 	// huh.Form.Run normally wires these two. Running the form through our own
 	// program means keeping the same contract: enter finishes the form and

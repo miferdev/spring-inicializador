@@ -84,6 +84,11 @@ type fakeInitializr struct {
 	generationMethod string
 	generationType   string
 	generationForm   url.Values
+
+	// metadataCalls and generationCalls count the requests each endpoint
+	// actually received, so a failing run can prove it never reached one.
+	metadataCalls   int
+	generationCalls int
 }
 
 func newFakeInitializr(t *testing.T) *fakeInitializr {
@@ -97,10 +102,12 @@ func newFakeInitializr(t *testing.T) *fakeInitializr {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metadata/client", func(w http.ResponseWriter, r *http.Request) {
+		fake.metadataCalls++
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(fake.metadata)
 	})
 	mux.HandleFunc("/starter.zip", func(w http.ResponseWriter, r *http.Request) {
+		fake.generationCalls++
 		fake.generationMethod = r.Method
 		fake.generationType = r.Header.Get("Content-Type")
 		if err := r.ParseForm(); err != nil {
@@ -309,7 +316,11 @@ func TestRunVersionAndHelp(t *testing.T) {
 		if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 			t.Fatalf("run exit code = %d, want 0", code)
 		}
-		for _, flag := range []string{"--deps", "--output", "--server", "--group-id", "--artifact-id", "--yes"} {
+		for _, flag := range []string{
+			"--deps", "--output", "--server", "--group-id", "--artifact-id", "--yes",
+			"--name", "--package-name", "--build", "--language", "--packaging",
+			"--java", "--boot-version",
+		} {
 			if !strings.Contains(stdout.String(), flag) {
 				t.Errorf("help text does not document %s", flag)
 			}

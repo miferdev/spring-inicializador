@@ -36,7 +36,7 @@ func fixtureCatalog(t *testing.T) *catalog.Catalog {
 	return c
 }
 
-func fieldByKey(t *testing.T, fields []field, key fieldKey) field {
+func fieldByKey(t *testing.T, fields []field, key Key) field {
 	t.Helper()
 
 	for _, f := range fields {
@@ -68,21 +68,21 @@ func choiceLabels(f field) []string {
 // populated from the catalog, in the server's order, and the build select
 // offers only the three project archives, never the build-file types.
 func TestFormOffersWhatTheServerPublishes(t *testing.T) {
-	form := newProjectForm(fixtureCatalog(t))
+	form := newProjectForm(fixtureCatalog(t), nil)
 
 	wantOrder := []struct {
-		key   fieldKey
+		key   Key
 		label string
 	}{
-		{fieldGroupID, "Group"},
-		{fieldArtifactID, "Artifact"},
-		{fieldName, "Name"},
-		{fieldPackageName, "Package"},
-		{fieldBuild, "Build"},
-		{fieldLanguage, "Language"},
-		{fieldPackaging, "Packaging"},
-		{fieldJavaVersion, "Java"},
-		{fieldBootVersion, "Boot"},
+		{KeyGroupID, "Group"},
+		{KeyArtifactID, "Artifact"},
+		{KeyName, "Name"},
+		{KeyPackageName, "Package"},
+		{KeyBuild, "Build"},
+		{KeyLanguage, "Language"},
+		{KeyPackaging, "Packaging"},
+		{KeyJavaVersion, "Java"},
+		{KeyBootVersion, "Boot"},
 	}
 	if len(form.fields) != len(wantOrder) {
 		t.Fatalf("form has %d fields, want %d", len(form.fields), len(wantOrder))
@@ -103,7 +103,7 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 		}
 	}
 
-	for _, key := range []fieldKey{fieldGroupID, fieldArtifactID, fieldName, fieldPackageName} {
+	for _, key := range []Key{KeyGroupID, KeyArtifactID, KeyName, KeyPackageName} {
 		f := fieldByKey(t, form.fields, key)
 		if f.kind != fieldText {
 			t.Errorf("field %q kind = %d, want a text field", key, f.kind)
@@ -114,32 +114,32 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 	}
 
 	cases := []struct {
-		key        fieldKey
+		key        Key
 		wantValues []string
 		wantLabels []string
 	}{
 		{
-			fieldBuild,
+			KeyBuild,
 			[]string{"gradle", "gradle-kotlin", "maven"},
 			[]string{"Gradle - Groovy", "Gradle - Kotlin", "Maven"},
 		},
 		{
-			fieldLanguage,
+			KeyLanguage,
 			[]string{"java", "kotlin", "groovy"},
 			[]string{"Java", "Kotlin", "Groovy"},
 		},
 		{
-			fieldPackaging,
+			KeyPackaging,
 			[]string{"jar", "war"},
 			[]string{"Jar", "War"},
 		},
 		{
-			fieldJavaVersion,
+			KeyJavaVersion,
 			[]string{"27", "25", "21", "17"},
 			[]string{"27", "25", "21", "17"},
 		},
 		{
-			fieldBootVersion,
+			KeyBootVersion,
 			[]string{
 				"4.2.0.BUILD-SNAPSHOT",
 				"4.2.0.RC2",
@@ -180,7 +180,7 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 // decision D3: Maven wins over the metadata's `gradle-project`.
 func TestFormDefaults(t *testing.T) {
 	cat := fixtureCatalog(t)
-	state := newProjectForm(cat).state
+	state := newProjectForm(cat, nil).state
 
 	if state.Build != options.BuildMaven {
 		t.Errorf("Build = %q, want %q (D3)", state.Build, options.BuildMaven)
@@ -232,9 +232,9 @@ func TestMissingMetadataKeyBecomesANote(t *testing.T) {
 	cat := fixtureCatalog(t)
 	cat.Packaging = catalog.Select{}
 
-	form := newProjectForm(cat)
+	form := newProjectForm(cat, nil)
 
-	f := fieldByKey(t, form.fields, fieldPackaging)
+	f := fieldByKey(t, form.fields, KeyPackaging)
 	if f.kind != fieldNote {
 		t.Fatalf("Packaging kind = %d, want a note when the metadata key is missing", f.kind)
 	}
@@ -252,7 +252,7 @@ func TestMissingMetadataKeyBecomesANote(t *testing.T) {
 	}
 
 	// The other selects are untouched: one missing key does not degrade the form.
-	if got := fieldByKey(t, form.fields, fieldJavaVersion); got.kind != fieldSelect {
+	if got := fieldByKey(t, form.fields, KeyJavaVersion); got.kind != fieldSelect {
 		t.Errorf("JavaVersion kind = %d, want a select", got.kind)
 	}
 
@@ -266,7 +266,7 @@ func TestMissingMetadataKeyBecomesANote(t *testing.T) {
 func TestOptionsFromStateRoundTrips(t *testing.T) {
 	cat := fixtureCatalog(t)
 
-	got := optionsFromState(cat, newProjectForm(cat).state)
+	got := optionsFromState(cat, newProjectForm(cat, nil).state)
 	want := options.Defaults(cat)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("optionsFromState(defaults) = %+v, want %+v", got, want)
