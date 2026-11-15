@@ -16,17 +16,17 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** The project form works. Run the binary on a terminal and it asks for group, artifact,
-build, language, packaging and versions, offering only what the server publishes; or pass flags and they
-answer the rows they cover, leaving the form to ask the rest. Choosing dependencies still means knowing
-their IDs — the searchable pane is the next slice.
+**Pre-alpha.** The wizard works end to end: a project form, a searchable dependency list, then
+generation. Everything on offer comes from the server's catalog, so the choices you see are the choices
+that exist. Categories in the dependency pane are the next slice.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
 | VS0 | Module, metadata parser, offline fixture | done |
 | VS1 | Generate and extract a project from flags | done |
 | VS2 | Project form with flag parity | done |
-| VS3 | Searchable dependency list | next |
+| VS3 | Searchable dependency list | done |
+| VS4 | Category level in the dependency pane | next |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
 | VS6 | Review, run and non-interactive contract | planned |
@@ -51,10 +51,12 @@ Generating a project needs network access to the Initializr API.
 
 ## Usage
 
-On a terminal it opens the project form: `tab` moves on, `esc` goes back a field, and `esc` on the first
-field leaves without writing anything. Flags answer fields instead of being a separate mode — pass two
-and the form asks only for the rest. Redirecting stdin or passing `--yes` skips the form entirely, which
-is what makes the same binary usable in a pipeline.
+On a terminal it opens the wizard. The form asks for the project fields: `tab` moves on, `esc` goes back a
+field, and `esc` on the first field leaves without writing anything. Then the dependency list — `/`
+searches all of them, `space` selects, `enter` finishes, and `esc` returns to the form with every answer
+intact. Flags answer fields instead of being a separate mode: pass two and the wizard asks only for the
+rest. Redirecting stdin or passing `--yes` skips the wizard entirely, which is what makes the same binary
+usable in a pipeline.
 
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
@@ -64,7 +66,7 @@ Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 
 | Flag | Meaning |
 | --- | --- |
-| `--deps` | Comma-separated dependency IDs, e.g. `web,data-jpa,postgresql` |
+| `--deps` | Dependency IDs, for non-interactive runs; the list is the normal way |
 | `--output` | Directory that receives the project (default `.`) |
 | `--group-id`, `--artifact-id` | Project coordinates; the package name follows them |
 | `--name`, `--package-name` | Override the derived name and package |
@@ -85,8 +87,9 @@ The project is extracted into `<output>/<artifact-id>`, with the permission bits
 Server rejections are printed verbatim. The tool does not reimplement the server's validation, so when
 a version or dependency is invalid you read the same sentence the web UI would show you.
 
-The dependency pane is the next slice. When it lands it will look roughly like this — categories and
-counts come from the metadata, never from this file:
+The dependency list is flat today: 206 rows, searchable, ranked by id then name then category. Categories
+are the next slice; when they land the pane will look roughly like this — counts and names come from the
+metadata, never from this file:
 
 ```text
 +------------------------------------------------------------------------------+
