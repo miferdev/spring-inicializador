@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/miferdev/spring-inicializador/internal/catalog"
 	"github.com/miferdev/spring-inicializador/internal/extract"
 	"github.com/miferdev/spring-inicializador/internal/options"
@@ -245,15 +246,15 @@ func choiceIDs(sel catalog.Select) string {
 	return strings.Join(ids, ", ")
 }
 
-// isTerminal reports whether f is a character device, the standard-library
-// signal that a person can answer a prompt. x/term would be a dependency for a
-// one-line check.
-func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+// interactiveStdin reports whether a person can answer a prompt. A character
+// device is not enough to answer that question: /dev/null is one, and treating
+// it as a terminal made any scripted run that redirected stdin without --yes
+// try to open the form and fail. isatty is the only honest check.
+//
+// It is a variable so a test can prove a run opens (or refuses to open) the
+// form without needing a terminal of its own.
+var interactiveStdin = func(f *os.File) bool {
+	return term.IsTerminal(f.Fd())
 }
 
 // runForm is the interactive form. It is a variable so a test can prove a run
@@ -329,7 +330,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// On a terminal the form asks for exactly what the flags did not answer.
 	// --yes and a redirected stdin both keep a run scripted, and a run whose
 	// flags answered every row has nothing left to ask.
-	if !cmd.yes && isTerminal(os.Stdin) && tui.Asks(c, provided) {
+	if !cmd.yes && interactiveStdin(os.Stdin) && tui.Asks(c, provided) {
 		chosen, ok, err := runForm(c, provided, os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)

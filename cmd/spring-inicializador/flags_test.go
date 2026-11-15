@@ -132,35 +132,23 @@ func TestPublishedVersionFlagsFailBeforeGeneration(t *testing.T) {
 	}
 }
 
-// charDeviceStdin replaces os.Stdin with os.DevNull, a character device, so a
-// run makes the form decision it would make on a terminal without needing one.
-func charDeviceStdin(t *testing.T) {
+// terminalStdin makes a run believe stdin is a terminal, without needing one.
+// The real check is isatty: /dev/null is a character device but not a terminal,
+// so a test that swapped os.Stdin for it would silently exercise the scripted
+// path instead of the interactive one.
+func terminalStdin(t *testing.T) {
 	t.Helper()
 
-	file, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatalf("os.Open(%q): %v", os.DevNull, err)
-	}
-	t.Cleanup(func() { file.Close() })
-
-	info, err := file.Stat()
-	if err != nil {
-		t.Fatalf("stat %q: %v", os.DevNull, err)
-	}
-	if info.Mode()&os.ModeCharDevice == 0 {
-		t.Skipf("%q is not a character device on this platform", os.DevNull)
-	}
-
-	original := os.Stdin
-	os.Stdin = file
-	t.Cleanup(func() { os.Stdin = original })
+	original := interactiveStdin
+	interactiveStdin = func(*os.File) bool { return true }
+	t.Cleanup(func() { interactiveStdin = original })
 }
 
 // TestAllProjectFlagsNeverOpenTheForm pins the "nothing left to ask" rule: with
 // every project field on the command line, the run goes straight to generation
 // even though stdin looks like a terminal.
 func TestAllProjectFlagsNeverOpenTheForm(t *testing.T) {
-	charDeviceStdin(t)
+	terminalStdin(t)
 
 	formCalls := 0
 	original := runForm
