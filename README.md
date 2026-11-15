@@ -16,16 +16,17 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** Generating a project from flags works end to end: metadata, generation, extraction and
-the next-steps line, with tests that run offline. There is no interactive interface yet, so choosing
-dependencies still means knowing their IDs — that is what the next slices add.
+**Pre-alpha.** The project form works. Run the binary on a terminal and it asks for group, artifact,
+build, language, packaging and versions, offering only what the server publishes; or pass flags and they
+answer the rows they cover, leaving the form to ask the rest. Choosing dependencies still means knowing
+their IDs — the searchable pane is the next slice.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
 | VS0 | Module, metadata parser, offline fixture | done |
 | VS1 | Generate and extract a project from flags | done |
-| VS2 | Project form with flag parity | next |
-| VS3 | Searchable dependency list | planned |
+| VS2 | Project form with flag parity | done |
+| VS3 | Searchable dependency list | next |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
 | VS6 | Review, run and non-interactive contract | planned |
@@ -50,6 +51,11 @@ Generating a project needs network access to the Initializr API.
 
 ## Usage
 
+On a terminal it opens the project form: `tab` moves on, `esc` goes back a field, and `esc` on the first
+field leaves without writing anything. Flags answer fields instead of being a separate mode — pass two
+and the form asks only for the rest. Redirecting stdin or passing `--yes` skips the form entirely, which
+is what makes the same binary usable in a pipeline.
+
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
 Created /home/you/projects/demo
@@ -61,9 +67,14 @@ Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 | `--deps` | Comma-separated dependency IDs, e.g. `web,data-jpa,postgresql` |
 | `--output` | Directory that receives the project (default `.`) |
 | `--group-id`, `--artifact-id` | Project coordinates; the package name follows them |
+| `--name`, `--package-name` | Override the derived name and package |
+| `--build` | `maven` (default), `gradle`, `gradle-kotlin` |
+| `--language`, `--packaging` | `java`/`kotlin`/`groovy`, `jar`/`war` — rejected before any request |
+| `--java`, `--boot-version` | Version ids, validated against what the server publishes |
+| `--dry-run` | Print the request it would send and exit without generating |
 | `--server` | Initializr base URL for self-hosted instances (default `start.spring.io`) |
 | `--force` | Replace a destination that already has content |
-| `--yes` | Never prompt — today's pipeline never does, and later screens keep that promise |
+| `--yes` | Never prompt, accept every default |
 | `--version`, `--help` | |
 
 Exit codes: `0` success, `1` server or filesystem failure, `2` usage error, `130` interrupted.
@@ -74,9 +85,8 @@ The project is extracted into `<output>/<artifact-id>`, with the permission bits
 Server rejections are printed verbatim. The tool does not reimplement the server's validation, so when
 a version or dependency is invalid you read the same sentence the web UI would show you.
 
-The interactive interface is the point of the project and it does not exist yet. When the dependency
-pane lands it will look roughly like this — categories and counts come from the metadata, never from
-this file:
+The dependency pane is the next slice. When it lands it will look roughly like this — categories and
+counts come from the metadata, never from this file:
 
 ```text
 +------------------------------------------------------------------------------+
