@@ -23,7 +23,12 @@ func newTestModel(t *testing.T) formModel {
 	t.Helper()
 
 	project := newProjectForm(fixtureCatalog(t), nil)
-	return formModel{Form: project.form, state: &project.state, packageInput: project.packageInput}
+	return formModel{
+		Form:         project.form,
+		state:        &project.state,
+		packageInput: project.packageInput,
+		firstKey:     project.firstKey,
+	}
 }
 
 // TestPackageFollowsIdentifiers pins the story's example and the live behaviour

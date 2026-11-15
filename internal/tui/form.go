@@ -100,6 +100,10 @@ type projectForm struct {
 	// freshly derived value and the (auto) marker, because huh's input keeps a
 	// second copy of the text.
 	packageInput *huh.Input
+
+	// firstKey is the key of the first row the form asks. "Back" has nowhere to
+	// go from there, which is how esc tells abort apart from a step back.
+	firstKey Key
 }
 
 // newProjectForm builds the form from the catalog and starts every row on its
@@ -109,6 +113,7 @@ type projectForm struct {
 // RunForm renders the same form.
 func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
 	form := &projectForm{fields: buildFields(cat, provided)}
+	form.firstKey = firstAskedKey(form.fields)
 
 	values := form.state.pointers()
 	for _, f := range form.fields {
@@ -167,6 +172,17 @@ func asksFields(fields []field) bool {
 		}
 	}
 	return false
+}
+
+// firstAskedKey is the key of the first row the form actually asks. A note is
+// skipped, so the focus never rests on one.
+func firstAskedKey(fields []field) Key {
+	for _, field := range fields {
+		if field.kind != fieldNote {
+			return field.key
+		}
+	}
+	return ""
 }
 
 // buildFields describes the project form in display order, skipping the rows the
@@ -360,17 +376,19 @@ func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
 	return huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm()), packageInput
 }
 
-// widget renders one row, editing the current value through value.
+// widget renders one row, editing the current value through value. The key is
+// the row's identity: huh reports the focused field back by key, which is how
+// the wrapper tells the first row from the rest.
 func (f field) widget(value *string) huh.Field {
 	switch f.kind {
 	case fieldText:
-		return huh.NewInput().Title(f.label).Value(value)
+		return huh.NewInput().Key(string(f.key)).Title(f.label).Value(value)
 	case fieldSelect:
 		choices := make([]huh.Option[string], 0, len(f.choices))
 		for _, c := range f.choices {
 			choices = append(choices, huh.NewOption(c.label, c.value))
 		}
-		return huh.NewSelect[string]().Title(f.label).Options(choices...).Value(value)
+		return huh.NewSelect[string]().Key(string(f.key)).Title(f.label).Options(choices...).Value(value)
 	default:
 		return huh.NewNote().Title(f.label).Description(f.note)
 	}
