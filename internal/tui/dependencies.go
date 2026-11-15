@@ -49,6 +49,13 @@ type dependenciesModel struct {
 	// duplicate a selection.
 	selected map[string]struct{}
 
+	// renders is the counter the frame tests point the row delegate at, so they
+	// can count the rows one frame writes (US3.3). It is nil in the program: the
+	// counter never reaches the screen, and the delegate's guard is one branch
+	// per rendered row. It lives here so a selection change, which rebuilds the
+	// delegate, cannot silently disarm the probe.
+	renders *int
+
 	list  list.Model
 	theme Theme
 }
@@ -72,22 +79,26 @@ func newDependenciesModel(cat *catalog.Catalog, seeded []string, width, height i
 	// we return is an index into that same slice. The rows are built from
 	// dependencies once, so the capture below stays aligned with the list for the
 	// life of the screen.
-	selected := newSelection(seeded)
+	screen := dependenciesModel{
+		dependencies: dependencies,
+		selected:     newSelection(seeded),
+		theme:        theme,
+	}
 
 	listWidth, listHeight := dependenciesListSize(width, height)
-	screen := list.New(items, dependencyDelegate{theme: theme, selected: selected}, listWidth, listHeight)
+	screen.list = list.New(items, screen.rowDelegate(), listWidth, listHeight)
 	// The component's own chrome (title, status bar, pagination dots, help) is
 	// off: the dots are Unicode, the screen owns its one footer line, and the
 	// key hints belong to the root screen. Pagination still pages; only its
 	// rendering is hidden.
-	screen.SetShowTitle(false)
-	screen.SetShowStatusBar(false)
-	screen.SetShowPagination(false)
-	screen.SetShowHelp(false)
-	screen.SetStatusBarItemName("dependency", "dependencies")
-	screen.DisableQuitKeybindings()
-	screen.FilterInput.Prompt = dependenciesSearchPrompt
-	screen.Filter = func(term string, _ []string) []list.Rank {
+	screen.list.SetShowTitle(false)
+	screen.list.SetShowStatusBar(false)
+	screen.list.SetShowPagination(false)
+	screen.list.SetShowHelp(false)
+	screen.list.SetStatusBarItemName("dependency", "dependencies")
+	screen.list.DisableQuitKeybindings()
+	screen.list.FilterInput.Prompt = dependenciesSearchPrompt
+	screen.list.Filter = func(term string, _ []string) []list.Rank {
 		positions := rankDependencies(term, dependencies)
 		ranks := make([]list.Rank, 0, len(positions))
 		for _, position := range positions {
@@ -96,7 +107,13 @@ func newDependenciesModel(cat *catalog.Catalog, seeded []string, width, height i
 		return ranks
 	}
 
-	return dependenciesModel{dependencies: dependencies, selected: selected, list: screen, theme: theme}
+	return screen
+}
+
+// rowDelegate is the one place the row delegate is built, so the checked set and
+// the frame tests' counter always travel together.
+func (d dependenciesModel) rowDelegate() dependencyDelegate {
+	return dependencyDelegate{theme: d.theme, selected: d.selected, renders: d.renders}
 }
 
 // resize applies a terminal size, keeping the row the footer takes.
@@ -135,7 +152,7 @@ func newSelection(seeded []string) map[string]struct{} {
 // update, so every change has to be pushed into it.
 func (d dependenciesModel) withSelection(selected map[string]struct{}) dependenciesModel {
 	d.selected = selected
-	d.list.SetDelegate(dependencyDelegate{theme: d.theme, selected: selected})
+	d.list.SetDelegate(d.rowDelegate())
 	return d
 }
 
@@ -396,6 +413,11 @@ type dependencyDelegate struct {
 	// value and never asks it to update, so every change to the set is pushed in
 	// through dependenciesModel.withSelection.
 	selected map[string]struct{}
+
+	// renders, when non-nil, counts the rows this delegate writes. Only the frame
+	// tests set it (dependenciesModel.countRenders); the guard costs one branch
+	// per row and changes nothing the rows say.
+	renders *int
 }
 
 // Height is one line per row.
@@ -412,6 +434,9 @@ func (d dependencyDelegate) Render(w io.Writer, m list.Model, index int, item li
 	row, ok := item.(dependencyItem)
 	if !ok {
 		return
+	}
+	if d.renders != nil {
+		(*d.renders)++
 	}
 
 	// "> [x] name category": the two markers, the gap between them and the gap
