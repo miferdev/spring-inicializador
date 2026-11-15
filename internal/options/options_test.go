@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/miferdev/spring-inicializador/internal/catalog"
@@ -111,6 +112,50 @@ func TestBuildType(t *testing.T) {
 				t.Errorf("BuildType(%q) = %q, want %q", tc.build, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestBuildName proves the inverse of BuildType covers every project archive
+// the fixture publishes and rejects the two build-file types. Offering a
+// build-file type as a project would return a single pom.xml or build script
+// instead of a project.
+func TestBuildName(t *testing.T) {
+	covered := 0
+	for _, value := range fixtureCatalog(t).Type.Values {
+		// The archive ids are the ones that carry "-project": maven-project,
+		// gradle-project and gradle-project-kotlin. The last one does not end
+		// with the suffix, so a HasSuffix filter would drop it.
+		if !strings.Contains(value.ID, "-project") {
+			continue
+		}
+
+		name, ok := options.BuildName(value.ID)
+		if !ok {
+			t.Errorf("BuildName(%q) is not mapped", value.ID)
+			continue
+		}
+		if got := (options.Options{Build: name}).BuildType(); got != value.ID {
+			t.Errorf("round trip %q -> %q -> %q", value.ID, name, got)
+		}
+		covered++
+	}
+	if covered != 3 {
+		t.Errorf("mapped %d project archive types, want 3", covered)
+	}
+
+	for _, typeID := range []string{"maven-build", "gradle-build", "unknown", ""} {
+		if name, ok := options.BuildName(typeID); ok {
+			t.Errorf("BuildName(%q) = %q, want it rejected as a non-archive type", typeID, name)
+		}
+	}
+
+	// Every build name the flag accepts has an archive behind it.
+	for _, build := range []string{options.BuildMaven, options.BuildGradle, options.BuildGradleKotlin} {
+		typeID := (options.Options{Build: build}).BuildType()
+		name, ok := options.BuildName(typeID)
+		if !ok || name != build {
+			t.Errorf("BuildName(BuildType(%q)) = (%q, %v), want (%q, true)", build, name, ok, build)
+		}
 	}
 }
 

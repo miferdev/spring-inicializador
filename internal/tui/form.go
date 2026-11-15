@@ -1,0 +1,259 @@
+// Package tui is the interactive frontend: one form over the metadata catalog
+// that produces the same options.Options the flags produce. It never fetches,
+// never renders an archive and never touches the filesystem, so the two
+// frontends cannot drift into parallel code paths (see AGENTS.md).
+package tui
+
+import (
+	"github.com/charmbracelet/huh"
+
+	"github.com/miferdev/spring-inicializador/internal/catalog"
+	"github.com/miferdev/spring-inicializador/internal/options"
+)
+
+// fieldKey identifies one row of the project form. The set is closed: every key
+// maps to exactly one field of formState.
+type fieldKey string
+
+const (
+	fieldGroupID     fieldKey = "groupId"
+	fieldArtifactID  fieldKey = "artifactId"
+	fieldName        fieldKey = "name"
+	fieldPackageName fieldKey = "packageName"
+	fieldBuild       fieldKey = "build"
+	fieldLanguage    fieldKey = "language"
+	fieldPackaging   fieldKey = "packaging"
+	fieldJavaVersion fieldKey = "javaVersion"
+	fieldBootVersion fieldKey = "bootVersion"
+)
+
+// fieldKind says which widget renders a row.
+type fieldKind int
+
+const (
+	fieldText fieldKind = iota
+	fieldSelect
+	// fieldNote replaces a select whose metadata key is missing: an empty
+	// picker offers nothing to pick, so the row explains the gap instead.
+	fieldNote
+)
+
+// choice is one select option. value is what lands in options.Options, label is
+// what the user reads; they differ wherever the server id is not the user-facing
+// name, as with a version id whose display name drops its qualifier.
+type choice struct {
+	value string
+	label string
+}
+
+// field is the pure description of one row of the form. It is built from the
+// catalog without a terminal, so tests can assert what the form offers and
+// newForm is the only place that turns it into widgets.
+type field struct {
+	key     fieldKey
+	label   string
+	kind    fieldKind
+	initial string
+	choices []choice
+	note    string
+}
+
+// formState is the value of every row of the form. The widgets edit it in
+// place and optionsFromState is the only consumer.
+type formState struct {
+	GroupID     string
+	ArtifactID  string
+	Name        string
+	PackageName string
+	Build       string
+	Language    string
+	Packaging   string
+	JavaVersion string
+	BootVersion string
+}
+
+// projectForm is the project form: the field descriptions, the state they
+// edit, and the huh form that renders them.
+type projectForm struct {
+	fields []field
+	state  formState
+	form   *huh.Form
+}
+
+// newProjectForm builds the form from the catalog and starts every row on its
+// default. It is the only constructor: tests assert on the fields it produces
+// and RunForm renders the same form.
+func newProjectForm(cat *catalog.Catalog) *projectForm {
+	form := &projectForm{fields: buildFields(cat)}
+
+	values := form.state.pointers()
+	for _, f := range form.fields {
+		if value, ok := values[f.key]; ok {
+			*value = f.initial
+		}
+	}
+
+	form.form = newForm(form.fields, values)
+	return form
+}
+
+// buildFields describes the project form in display order. Every offering comes
+// from the catalog, so a server that stops publishing a value stops offering
+// it: no option value is written into source code.
+func buildFields(cat *catalog.Catalog) []field {
+	// A catalog with nothing in it behaves like a server that published no
+	// metadata at all: every select degrades to a note.
+	if cat == nil {
+		cat = &catalog.Catalog{}
+	}
+
+	defaults := options.Defaults(cat)
+	return []field{
+		textField(fieldGroupID, "Group", defaults.GroupID),
+		textField(fieldArtifactID, "Artifact", defaults.ArtifactID),
+		textField(fieldName, "Name", defaults.Name),
+		textField(fieldPackageName, "Package", defaults.PackageName),
+		selectField(fieldBuild, "Build", buildChoices(cat), options.BuildMaven),
+		selectField(fieldLanguage, "Language", catalogChoices(cat.Language), cat.Language.Default),
+		selectField(fieldPackaging, "Packaging", catalogChoices(cat.Packaging), cat.Packaging.Default),
+		selectField(fieldJavaVersion, "Java", catalogChoices(cat.JavaVersion), cat.JavaVersion.Default),
+		selectField(fieldBootVersion, "Boot", catalogChoices(cat.BootVersion), cat.BootVersion.Default),
+	}
+}
+
+func textField(key fieldKey, label, initial string) field {
+	return field{key: key, label: label, kind: fieldText, initial: initial}
+}
+
+// selectField offers choices in the order given and starts on preferred. A
+// select without choices cannot be shown as a picker, so it becomes a note, and
+// the value stays empty so the server applies its own default.
+func selectField(key fieldKey, label string, choices []choice, preferred string) field {
+	if len(choices) == 0 {
+		return field{key: key, label: label, kind: fieldNote, note: missingNote(label)}
+	}
+	return field{
+		key:     key,
+		label:   label,
+		kind:    fieldSelect,
+		initial: pick(choices, preferred),
+		choices: choices,
+	}
+}
+
+// pick returns preferred when it is on offer, and the first choice otherwise: a
+// select must always start on one of its own values.
+func pick(choices []choice, preferred string) string {
+	for _, c := range choices {
+		if c.value == preferred {
+			return preferred
+		}
+	}
+	if len(choices) == 0 {
+		return ""
+	}
+	return choices[0].value
+}
+
+// missingNote is the line that replaces a select the metadata does not publish.
+func missingNote(label string) string {
+	return label + ": the server did not publish this option, so it will choose its own default."
+}
+
+// buildChoices offers only the metadata types that produce a project archive.
+// The catalog keeps ids but drops each type's action and tags, so the inverse
+// mapping in options is what tells an archive (`maven-project`) from a single
+// build file (`maven-build`). Matching on the ids themselves would have to
+// hardcode three names, and a "-project" suffix would silently lose
+// `gradle-project-kotlin`; the mapping is the only correct signal.
+func buildChoices(cat *catalog.Catalog) []choice {
+	if cat == nil {
+		return nil
+	}
+
+	choices := make([]choice, 0, len(cat.Type.Values))
+	for _, value := range cat.Type.Values {
+		build, ok := options.BuildName(value.ID)
+		if !ok {
+			continue
+		}
+		choices = append(choices, choice{value: build, label: value.Name})
+	}
+	return choices
+}
+
+// catalogChoices copies a select's values in the server's order. Only the id is
+// the value: that is the string the server accepts back.
+func catalogChoices(sel catalog.Select) []choice {
+	choices := make([]choice, 0, len(sel.Values))
+	for _, value := range sel.Values {
+		choices = append(choices, choice{value: value.ID, label: value.Name})
+	}
+	return choices
+}
+
+// pointers maps every field key to the state field that stores it. It is the
+// one place that binds a form row to formState, so adding a row means adding a
+// line here and nothing else.
+func (s *formState) pointers() map[fieldKey]*string {
+	return map[fieldKey]*string{
+		fieldGroupID:     &s.GroupID,
+		fieldArtifactID:  &s.ArtifactID,
+		fieldName:        &s.Name,
+		fieldPackageName: &s.PackageName,
+		fieldBuild:       &s.Build,
+		fieldLanguage:    &s.Language,
+		fieldPackaging:   &s.Packaging,
+		fieldJavaVersion: &s.JavaVersion,
+		fieldBootVersion: &s.BootVersion,
+	}
+}
+
+// newForm renders the described fields as one huh form, in one group so every
+// row stays on a single page.
+func newForm(fields []field, values map[fieldKey]*string) *huh.Form {
+	widgets := make([]huh.Field, 0, len(fields))
+	for _, f := range fields {
+		widgets = append(widgets, f.widget(values[f.key]))
+	}
+	return huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm())
+}
+
+// widget renders one row, editing the current value through value.
+func (f field) widget(value *string) huh.Field {
+	switch f.kind {
+	case fieldText:
+		return huh.NewInput().Title(f.label).Value(value)
+	case fieldSelect:
+		choices := make([]huh.Option[string], 0, len(f.choices))
+		for _, c := range f.choices {
+			choices = append(choices, huh.NewOption(c.label, c.value))
+		}
+		return huh.NewSelect[string]().Title(f.label).Options(choices...).Value(value)
+	default:
+		return huh.NewNote().Title(f.label).Description(f.note)
+	}
+}
+
+// optionsFromState is the only bridge from the form to the pipeline. It starts
+// from the metadata defaults so the fields the form does not edit (description
+// today, nothing else) keep their documented value, then lets the form win for
+// every row it does edit.
+//
+// Dependencies stay empty until the dependency panel exists (VS3); today the
+// only source for them is --deps, which is also why passing it skips the form.
+func optionsFromState(cat *catalog.Catalog, state formState) options.Options {
+	opts := options.Defaults(cat)
+
+	opts.GroupID = state.GroupID
+	opts.ArtifactID = state.ArtifactID
+	opts.Name = state.Name
+	opts.PackageName = state.PackageName
+	opts.Build = state.Build
+	opts.Language = state.Language
+	opts.Packaging = state.Packaging
+	opts.JavaVersion = state.JavaVersion
+	opts.BootVersion = state.BootVersion
+
+	return opts
+}

@@ -14,12 +14,21 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/catalog"
 )
 
-// Build identifiers accepted on the command line and, later, in the form.
+// Build identifiers accepted on the command line and in the form.
 const (
 	BuildMaven        = "maven"
 	BuildGradle       = "gradle"
 	BuildGradleKotlin = "gradle-kotlin"
 )
+
+// buildTypes is the only place that knows how a build name becomes a metadata
+// `type` id and back. BuildType and BuildName read the same table, so the flag
+// and the form cannot disagree about what a build is called.
+var buildTypes = map[string]string{
+	BuildMaven:        "maven-project",
+	BuildGradle:       "gradle-project",
+	BuildGradleKotlin: "gradle-project-kotlin",
+}
 
 // Options is one project request. Every field is a plain string because every
 // transport form (flags today, form fields later) is textual too.
@@ -127,14 +136,19 @@ func (o Options) Form() url.Values {
 // values. An unknown build yields an empty type on purpose: the server rejects
 // it with its own message instead of the client inventing a value.
 func (o Options) BuildType() string {
-	switch o.Build {
-	case BuildMaven:
-		return "maven-project"
-	case BuildGradle:
-		return "gradle-project"
-	case BuildGradleKotlin:
-		return "gradle-project-kotlin"
-	default:
-		return ""
+	return buildTypes[o.Build]
+}
+
+// BuildName is the inverse of BuildType: it turns a metadata `type` id into the
+// build name the flag and the form use, and reports false when the id is not a
+// project archive. The server also publishes `maven-build` and `gradle-build`,
+// which return a single file instead of a project; they have no build name
+// here on purpose, so no frontend can offer them as an archive.
+func BuildName(typeID string) (string, bool) {
+	for build, id := range buildTypes {
+		if id == typeID {
+			return build, true
+		}
 	}
+	return "", false
 }

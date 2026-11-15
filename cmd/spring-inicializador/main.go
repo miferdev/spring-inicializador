@@ -17,6 +17,7 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/extract"
 	"github.com/miferdev/spring-inicializador/internal/options"
 	"github.com/miferdev/spring-inicializador/internal/render"
+	"github.com/miferdev/spring-inicializador/internal/tui"
 )
 
 // version is overridden at build time with:
@@ -56,6 +57,9 @@ Flags:
   --version          Print the version and exit
   --help, -h         Print this help and exit
 
+With no project flag, no --yes and a terminal on stdin, it asks for the
+project options interactively. Anything else stays non-interactive.
+
 The archive is extracted into <output>/<artifact-id>.
 
 Exit codes: 0 success, 1 server or filesystem failure, 2 usage error.
@@ -65,26 +69,86 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run is the whole program without process-level side effects: it never reads
-// stdin, writes ASCII-only progress to stdout, errors to stderr, and returns
-// the exit code. It exists so the pipeline can be tested end to end in-process.
-func run(args []string, stdout, stderr io.Writer) int {
+// commandLine is the parsed command line. One struct keeps every flag, its
+// default and its documentation together as US2.3 adds one per form field.
+type commandLine struct {
+	deps       string
+	output     string
+	force      bool
+	groupID    string
+	artifactID string
+	server     string
+	yes        bool
+	version    bool
+	help       bool
+}
+
+// newFlagSet registers the documented flags. It is separate from run so tests
+// can check which flags answer the form without starting the pipeline.
+func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags := flag.NewFlagSet("spring-inicializador", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags.SetOutput(output)
 	flags.Usage = func() { fmt.Fprint(flags.Output(), usageText) }
 
-	deps := flags.String("deps", "", "comma-separated dependency ids, e.g. web,data-jpa")
-	output := flags.String("output", ".", "directory that receives the generated project")
-	force := flags.Bool("force", false, "overwrite an existing output directory")
-	groupID := flags.String("group-id", "", "project group id (default: from server metadata)")
-	artifactID := flags.String("artifact-id", "", "project artifact id (default: from server metadata)")
-	server := flags.String("server", defaultServer, "Initializr base URL for metadata and generation")
-	// Accepted for CI parity. This story has no prompts at all, so there is
-	// nothing for it to suppress yet.
-	flags.Bool("yes", false, "run without prompting, taking defaults")
-	showVersion := flags.Bool("version", false, "print the version and exit")
-	showHelp := flags.Bool("help", false, "print this help and exit")
-	flags.BoolVar(showHelp, "h", false, "print this help and exit (shorthand)")
+	cmd := &commandLine{}
+	flags.StringVar(&cmd.deps, "deps", "", "comma-separated dependency ids, e.g. web,data-jpa")
+	flags.StringVar(&cmd.output, "output", ".", "directory that receives the generated project")
+	flags.BoolVar(&cmd.force, "force", false, "overwrite an existing output directory")
+	flags.StringVar(&cmd.groupID, "group-id", "", "project group id (default: from server metadata)")
+	flags.StringVar(&cmd.artifactID, "artifact-id", "", "project artifact id (default: from server metadata)")
+	flags.StringVar(&cmd.server, "server", defaultServer, "Initializr base URL for metadata and generation")
+	flags.BoolVar(&cmd.yes, "yes", false, "run without prompting, taking defaults")
+	flags.BoolVar(&cmd.version, "version", false, "print the version and exit")
+	flags.BoolVar(&cmd.help, "help", false, "print this help and exit")
+	flags.BoolVar(&cmd.help, "h", false, "print this help and exit (shorthand)")
+	return flags, cmd
+}
+
+// formFlags are the flags whose value already answers a row of the form.
+// Passing one means the user is scripting the run, so the form must not open
+// and ask for the rest.
+var formFlags = []string{"group-id", "artifact-id", "deps"}
+
+// passedFlags returns the names of the flags the user actually set, so a
+// default value is never mistaken for a choice.
+func passedFlags(flags *flag.FlagSet) map[string]bool {
+	passed := make(map[string]bool)
+	flags.Visit(func(flag *flag.Flag) { passed[flag.Name] = true })
+	return passed
+}
+
+// mayPrompt reports whether the flag half of the gate allows the form: --yes is
+// off and no flag answered a field already. The caller still has to check that
+// stdin is a terminal, because a pipe must never wait for a keypress.
+func mayPrompt(passed map[string]bool, yes bool) bool {
+	if yes {
+		return false
+	}
+	for _, name := range formFlags {
+		if passed[name] {
+			return false
+		}
+	}
+	return true
+}
+
+// isTerminal reports whether f is a character device, the standard-library
+// signal that a person can answer a prompt. x/term would be a dependency for a
+// one-line check.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// run is the whole program without process-level side effects: it reads stdin
+// only to run the interactive form, writes ASCII-only progress to stdout,
+// errors to stderr, and returns the exit code. It exists so the pipeline can be
+// tested end to end in-process.
+func run(args []string, stdout, stderr io.Writer) int {
+	flags, cmd := newFlagSet(stderr)
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -94,11 +158,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	if *showHelp {
+	if cmd.help {
 		fmt.Fprint(stdout, usageText)
 		return exitOK
 	}
-	if *showVersion {
+	if cmd.version {
 		fmt.Fprintf(stdout, "spring-inicializador %s\n", version)
 		return exitOK
 	}
@@ -110,7 +174,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// One base URL for both endpoints. A malformed --server is a usage error
 	// and fails before any request is built.
-	baseURL, err := catalog.NormalizeBaseURL(*server)
+	baseURL, err := catalog.NormalizeBaseURL(cmd.server)
 	if err != nil {
 		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
 		return exitUsage
@@ -126,21 +190,37 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, err)
 	}
 
-	opts := resolve(c, *groupID, *artifactID, *deps)
+	opts := resolve(c, cmd.groupID, cmd.artifactID, cmd.deps)
+
+	// The form is the default interaction, but only when a person is there to
+	// answer it: no generation flag already answered a field, --yes is off and
+	// stdin is a terminal. A pipe or a redirection keeps the old, fully
+	// scriptable path unchanged.
+	if mayPrompt(passedFlags(flags), cmd.yes) && isTerminal(os.Stdin) {
+		chosen, ok, err := tui.RunForm(c, os.Stdin, stdout)
+		if err != nil {
+			return reportError(stderr, err)
+		}
+		if !ok {
+			// Aborted with esc or ctrl+c: nothing to do, nothing written.
+			return exitOK
+		}
+		opts = chosen
+	}
 
 	archive, err := render.Render(ctx, client, baseURL, opts)
 	if err != nil {
 		return reportError(stderr, err)
 	}
 
-	overwrote, err := extract.Extract(archive, *output, *force)
+	overwrote, err := extract.Extract(archive, cmd.output, cmd.force)
 	if err != nil {
 		return reportError(stderr, err)
 	}
 
 	// The server names the archive's top-level directory after baseDir, which
 	// this tool always sets to the artifact id.
-	destination := filepath.Join(*output, opts.ArtifactID)
+	destination := filepath.Join(cmd.output, opts.ArtifactID)
 	if overwrote {
 		fmt.Fprintf(stdout, "Overwrote %s\n", destination)
 	} else {
