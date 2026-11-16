@@ -287,9 +287,19 @@ func TestEscClearsTheQueryBeforeItLeavesTheScreen(t *testing.T) {
 		t.Errorf("visible rows = %d after clearing the query, want all %d", got, want)
 	}
 
+	// The next esc leaves the search for the level it started from, which is the
+	// root, and only the esc after that leaves the screen.
+	h.press(tea.KeyEsc)
+	if h.model.deps.level != levelCategories {
+		t.Errorf("level = %v after the second esc, want the category root", h.model.deps.level)
+	}
+	if h.model.screen != screenDependencies {
+		t.Errorf("screen = %v after the second esc, want to stay on the dependencies", h.model.screen)
+	}
+
 	h.press(tea.KeyEsc)
 	if h.model.screen != screenProject {
-		t.Errorf("screen = %v after the second esc, want the project form", h.model.screen)
+		t.Errorf("screen = %v after the third esc, want the project form", h.model.screen)
 	}
 }
 

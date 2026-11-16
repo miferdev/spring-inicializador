@@ -106,11 +106,14 @@ func newDependenciesModel(cat *catalog.Catalog, seeded []string, width, height i
 
 	listWidth, listHeight := dependenciesListSize(width, height)
 	screen.list = list.New(screen.categoryRows(), categoryDelegate{theme: theme}, listWidth, listHeight)
-	// The component's own chrome (title, status bar, pagination dots, help) is
-	// off: the dots are Unicode, the screen owns its one footer line, and the
-	// key hints belong to the root screen. Pagination still pages; only its
-	// rendering is hidden.
+	// The component's own chrome (title, filter bar, status bar, pagination dots,
+	// help) is off: the dots are Unicode, the screen owns its header and its two
+	// footer lines, and the header is what states the query. The filter bar also
+	// reserved a blank line above the first row; not drawing it gives the window
+	// that row back (US4.4). Filtering itself is unaffected: it is driven by the
+	// component's filter state, not by whether the bar is drawn.
 	screen.list.SetShowTitle(false)
+	screen.list.SetShowFilter(false)
 	screen.list.SetShowStatusBar(false)
 	screen.list.SetShowPagination(false)
 	screen.list.SetShowHelp(false)
@@ -297,10 +300,10 @@ func (d dependenciesModel) resize(width, height int) dependenciesModel {
 }
 
 // dependenciesListSize is the space the list component gets: the terminal minus
-// the header and the footer. The floor keeps the component's paginator
+// the header and the two footer lines. The floor keeps the component's paginator
 // arithmetic sane on a terminal that reports almost nothing.
 func dependenciesListSize(width, height int) (int, int) {
-	return max(1, width), max(3, height) - 2
+	return max(1, width), max(4, height) - 3
 }
 
 // newSelection turns the ids the command line already answered into the checked
@@ -393,11 +396,46 @@ func (d dependenciesModel) chosen() []string {
 	return append(chosen, unknown...)
 }
 
-// view renders the header, the window and the footer. The component renders only
-// the current page, which is the bounded window US3.3 measures; nothing here asks
-// for the whole slice.
+// view renders the header, the window and the two footer lines. The component
+// renders only the current page, which is the bounded window US3.3 measures;
+// nothing here asks for the whole slice. A level with no rows shows one
+// explanatory line instead of a window padded with blanks, so an empty screen
+// never looks frozen (US4.4).
 func (d dependenciesModel) view() string {
-	return d.headerLine() + "\n" + d.list.View() + "\n" + d.theme.Muted.Render(d.footer())
+	width := d.list.Width()
+
+	lines := []string{d.headerLine()}
+	if len(d.list.VisibleItems()) == 0 {
+		lines = append(lines, d.emptyLine())
+	} else {
+		lines = append(lines, trimBlankTail(d.list.View()))
+	}
+	lines = append(lines, d.theme.Muted.Render(fitLine(d.statusLine(), width)))
+	lines = append(lines, d.theme.Muted.Render(fitLine(d.keyHints(), width)))
+
+	return strings.Join(lines, "\n")
+}
+
+// emptyLine is the one line a level with no rows shows instead of a padded
+// window: why there is nothing to list (US4.4).
+func (d dependenciesModel) emptyLine() string {
+	if query := strings.TrimSpace(d.list.FilterValue()); query != "" {
+		return fmt.Sprintf("No dependency matches %q.", query)
+	}
+	if d.level == levelCategories {
+		return "The catalog has no categories."
+	}
+	return "No dependencies in this category."
+}
+
+// trimBlankTail drops the blank lines the list component pads a short page with,
+// so a frame ends where its content ends and carries no dead rows (US4.4).
+func trimBlankTail(view string) string {
+	lines := strings.Split(view, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // headerLine is the line above the list: where the user is, and the totals this
@@ -466,14 +504,14 @@ func fitLine(line string, width int) string {
 
 // dependenciesFinishHint is the key that leaves the screen with everything it has
 // picked. enter cannot do it any more: at the root it opens a category, and on a
-// dependency row it checks one. The footer always shows it, because a key nobody
-// can discover is not a key.
+// dependency row it checks one. The hint row always shows it, because a key
+// nobody can discover is not a key.
 const dependenciesFinishHint = "ctrl+d finish"
 
-// footer is the one line under the list: what the level shows, what is checked,
-// and the key that finishes. The result and the ids give way to the hint, so the
-// hint survives every truncation short of the absurd.
-func (d dependenciesModel) footer() string {
+// statusLine is the first footer line: what the level shows and what is checked.
+// The ids give way when the room runs out; the count survives, because the number
+// is the answer to "did my space register?".
+func (d dependenciesModel) statusLine() string {
 	width := d.list.Width()
 
 	line := d.resultLine()
@@ -481,30 +519,40 @@ func (d dependenciesModel) footer() string {
 		line += footerGap
 	}
 
-	room := width - ansi.StringWidth(line) - ansi.StringWidth(dependenciesFinishHint) - ansi.StringWidth(footerGap)
-	line += selectionLine(d.chosen(), room) + footerGap + dependenciesFinishHint
+	return line + selectionLine(d.chosen(), width-ansi.StringWidth(line))
+}
 
-	if width > 0 {
-		// The safety net for a pathological width: the ids are the first thing
-		// already shortened, and nothing here can overflow the terminal.
-		line = ansi.Truncate(line, width, "...")
+// keyHints is the second footer line: the keys that work at this level, so the
+// panel never hides a key the user needs (US4.4). esc means two different things
+// in a search, and the line says which one is next.
+func (d dependenciesModel) keyHints() string {
+	switch d.level {
+	case levelCategories:
+		return "enter open" + footerGap + "/ find" + footerGap + "esc back" + footerGap + dependenciesFinishHint
+	case levelSearch:
+		esc := "esc back"
+		if strings.TrimSpace(d.list.FilterValue()) != "" {
+			esc = "esc clear"
+		}
+		return "enter/space pick" + footerGap + esc + footerGap + dependenciesFinishHint
+	default:
+		return "enter/space pick" + footerGap + "/ find" + footerGap + "esc back" + footerGap + dependenciesFinishHint
 	}
-	return line
 }
 
 // footerGap separates the parts of the header and the footer.
 const footerGap = "  "
 
-// resultLine is the first half of the footer: what the current level shows, or
-// what the query matched, or why nothing did. The root has no half of its own,
-// because the header already states the totals it would repeat.
+// resultLine is the status line's lead: what the current level shows, or what the
+// query matched. It is empty when there is nothing to count — the empty line above
+// the footer explains that — and at the root, where the header states the totals.
 func (d dependenciesModel) resultLine() string {
 	query := strings.TrimSpace(d.list.FilterValue())
 	visible := len(d.list.VisibleItems())
 
 	switch {
-	case query != "" && visible == 0:
-		return fmt.Sprintf("No dependency matches %q; esc clears the search.", query)
+	case visible == 0:
+		return ""
 	case query != "":
 		return fmt.Sprintf("Showing %d of %d for %q", visible, len(d.dependencies), query)
 	case d.level == levelCategories:
@@ -600,9 +648,14 @@ func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, depe
 
 		case tea.KeyEsc:
 			switch {
-			case d.querying():
-				// Clearing the query leaves the search, and a search never
-				// replaces the level it was started from.
+			case d.list.FilterValue() != "":
+				// The query goes first: clearing it is what esc means in a search,
+				// and the next esc leaves the search for the level it started
+				// from (docs/ui.md, US4.4).
+				d.list.ResetFilter()
+				return d, nil, actionStay
+			case d.list.SettingFilter():
+				// Search mode with nothing typed: there is no query to clear.
 				return d.leaveSearch(), nil, actionStay
 			case d.level == levelDependencies:
 				return d.show(levelCategories), nil, actionStay
@@ -647,11 +700,6 @@ func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, depe
 	updated, cmd := d.list.Update(msg)
 	d.list = updated
 	return d, cmd, actionStay
-}
-
-// querying reports whether a search is on screen, applied or still being typed.
-func (d dependenciesModel) querying() bool {
-	return d.list.FilterValue() != "" || d.list.SettingFilter()
 }
 
 // dependencyDelegate renders one dependency per line: a focus marker, an ASCII

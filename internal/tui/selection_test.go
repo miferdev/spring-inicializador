@@ -114,7 +114,7 @@ func TestSpaceTogglesTheFocusedRowAndStays(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	if got := h.model.deps.footer(); !strings.Contains(got, "0 selected") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "0 selected") {
 		t.Fatalf("footer = %q, want it to start at 0 selected", got)
 	}
 
@@ -133,7 +133,7 @@ func TestSpaceTogglesTheFocusedRowAndStays(t *testing.T) {
 	if view := h.model.deps.view(); !strings.Contains(view, "[x] Spring Web") {
 		t.Errorf("the checked row is not marked; view:\n%s", view)
 	}
-	if got := h.model.deps.footer(); !strings.Contains(got, "1 selected: web") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "1 selected: web") {
 		t.Errorf("footer = %q, want 1 selected: web", got)
 	}
 
@@ -158,7 +158,7 @@ func TestFooterCountsSelections(t *testing.T) {
 
 	// The root states its totals in the header, so the footer starts with the
 	// selection and ends with the key that finishes.
-	if got, want := h.model.deps.footer(), "0 selected  ctrl+d finish"; got != want {
+	if got, want := h.model.deps.statusLine(), "0 selected"; got != want {
 		t.Fatalf("footer = %q, want %q", got, want)
 	}
 
@@ -167,7 +167,7 @@ func TestFooterCountsSelections(t *testing.T) {
 
 	// data-jpa was checked last but the request, and therefore the footer, is in
 	// catalog order.
-	if got, want := h.model.deps.footer(), "2 selected: web, data-jpa  ctrl+d finish"; got != want {
+	if got, want := h.model.deps.statusLine(), "2 selected: web, data-jpa"; got != want {
 		t.Errorf("footer = %q, want %q", got, want)
 	}
 
@@ -175,17 +175,18 @@ func TestFooterCountsSelections(t *testing.T) {
 	h.send(keyRunes("/"))
 	h.typeText("sql")
 	h.press(tea.KeyEnter)
-	footer := h.model.deps.footer()
+	footer := h.model.deps.statusLine()
 	if !strings.Contains(footer, "2 selected: web, data-jpa") {
 		t.Errorf("footer = %q while searching, want the selection kept", footer)
 	}
-	if !strings.HasSuffix(footer, dependenciesFinishHint) {
-		t.Errorf("footer = %q while searching, want the finish hint at the end", footer)
+	if !strings.Contains(h.model.deps.keyHints(), dependenciesFinishHint) {
+		t.Errorf("hints = %q while searching, want the finish hint", h.model.deps.keyHints())
 	}
 }
 
-// TestFooterTruncatesTheIDsButNotTheCount proves the truncation rule: whole ids
-// only, "..." at the cut, the exact count kept, and one line that fits.
+// TestFooterTruncatesTheIDsButNotTheCount proves the status line's truncation
+// rule: whole ids only, "..." at the cut, the exact count kept, and one line that
+// fits.
 func TestFooterTruncatesTheIDsButNotTheCount(t *testing.T) {
 	cat := fixtureCatalog(t)
 
@@ -195,35 +196,29 @@ func TestFooterTruncatesTheIDsButNotTheCount(t *testing.T) {
 	}
 
 	screen := newDependenciesModel(cat, ids, 60, 20, Default())
-	footer := screen.footer()
+	status := screen.statusLine()
 
-	// The finish hint is reserved, so it survives the cut.
-	if !strings.HasSuffix(footer, footerGap+dependenciesFinishHint) {
-		t.Errorf("footer = %q, want the finish hint kept at the end", footer)
+	if !strings.Contains(status, "20 selected:") {
+		t.Errorf("status line = %q, want the exact count even when the ids are cut", status)
 	}
-	body := strings.TrimSuffix(footer, footerGap+dependenciesFinishHint)
-
-	if !strings.Contains(body, "20 selected:") {
-		t.Errorf("footer = %q, want the exact count even when the ids are cut", body)
+	if !strings.HasSuffix(status, "...") {
+		t.Errorf("status line = %q, want the cut marked with ...", status)
 	}
-	if !strings.HasSuffix(body, "...") {
-		t.Errorf("footer = %q, want the cut marked with ...", body)
+	if width := ansi.StringWidth(status); width > 60 {
+		t.Errorf("status line is %d cells wide, want at most 60: %q", width, status)
 	}
-	if width := ansi.StringWidth(footer); width > 60 {
-		t.Errorf("footer is %d cells wide, want at most 60: %q", width, footer)
-	}
-	for _, r := range footer {
+	for _, r := range status {
 		if r > unicode.MaxASCII {
-			t.Errorf("footer %q is not ASCII (found %q)", footer, r)
+			t.Errorf("status line %q is not ASCII (found %q)", status, r)
 			break
 		}
 	}
 
 	// The ids are a catalog-order prefix of the selection: nothing is reordered
 	// and nothing is invented to fill the line.
-	parts := strings.SplitN(body, "20 selected: ", 2)
+	parts := strings.SplitN(status, "20 selected: ", 2)
 	if len(parts) != 2 {
-		t.Fatalf("footer = %q, want the count followed by the ids", body)
+		t.Fatalf("status line = %q, want the count followed by the ids", status)
 	}
 	shown := strings.Split(strings.TrimSuffix(parts[1], ", ..."), ", ")
 	for i, id := range shown {
@@ -234,8 +229,8 @@ func TestFooterTruncatesTheIDsButNotTheCount(t *testing.T) {
 
 	// Wide enough for all twenty ids: no ellipsis, nothing dropped.
 	wide := newDependenciesModel(cat, ids, 400, 20, Default())
-	if got := wide.footer(); strings.Contains(got, "...") {
-		t.Errorf("footer at 400 columns = %q, want every id", got)
+	if got := wide.statusLine(); strings.Contains(got, "...") {
+		t.Errorf("status line at 400 columns = %q, want every id", got)
 	}
 }
 
@@ -271,7 +266,7 @@ func TestSelectionSurvivesFiltering(t *testing.T) {
 	if view := h.model.deps.view(); !strings.Contains(view, "[x] PostgreSQL Driver") {
 		t.Errorf("the checked row lost its mark while filtering; view:\n%s", view)
 	}
-	if got := h.model.deps.footer(); !strings.Contains(got, "1 selected: postgresql") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "1 selected: postgresql") {
 		t.Errorf("footer = %q, want the selection kept", got)
 	}
 }
@@ -316,7 +311,7 @@ func TestSeededDependenciesArriveChecked(t *testing.T) {
 	if got, want := h.model.deps.chosen(), []string{"web", "data-jpa"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("checked = %v, want %v", got, want)
 	}
-	if got := h.model.deps.footer(); !strings.Contains(got, "2 selected: web, data-jpa") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "2 selected: web, data-jpa") {
 		t.Errorf("footer = %q, want both seeded ids", got)
 	}
 
@@ -366,7 +361,7 @@ func TestSelectionSurvivesTheFormRoundTrip(t *testing.T) {
 	if view := h.model.deps.view(); !strings.Contains(view, "[x] Spring Web") {
 		t.Errorf("the checked row lost its mark after the round trip; view:\n%s", view)
 	}
-	if got := h.model.deps.footer(); !strings.Contains(got, "1 selected: web") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "1 selected: web") {
 		t.Errorf("footer = %q after the round trip, want the selection kept", got)
 	}
 }
@@ -394,7 +389,7 @@ func TestSeededIDsTheCatalogDoesNotPublishSurvive(t *testing.T) {
 	if got, want := h.model.deps.chosen(), []string{"web", "adbc", "webb"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("checked = %v, want %v", got, want)
 	}
-	if got := h.model.deps.footer(); !strings.Contains(got, "3 selected: web, adbc, webb") {
+	if got := h.model.deps.statusLine(); !strings.Contains(got, "3 selected: web, adbc, webb") {
 		t.Errorf("footer = %q, want the flag ids kept", got)
 	}
 	if got, want := h.model.finished(h.cat).Deps, []string{"web", "adbc", "webb"}; !reflect.DeepEqual(got, want) {

@@ -24,7 +24,10 @@ func headerOf(t *testing.T, screen dependenciesModel) string {
 	return header
 }
 
-// searchFor opens a search with term and applies it.
+// searchFor opens a search with term and presses enter. A query that matches
+// something is applied; a query that matches nothing keeps the query while it is
+// still being typed, because the component would otherwise drop it — either way
+// the term is on screen and the rows reflect it.
 func searchFor(t *testing.T, screen dependenciesModel, term string) dependenciesModel {
 	t.Helper()
 
@@ -34,8 +37,8 @@ func searchFor(t *testing.T, screen dependenciesModel, term string) dependencies
 	}
 	screen = drive(t, screen, keyRunes(term))
 	screen = drive(t, screen, tea.KeyMsg{Type: tea.KeyEnter})
-	if !screen.list.IsFiltered() {
-		t.Fatalf("the %q query was not applied", term)
+	if got := screen.list.FilterValue(); got != term {
+		t.Fatalf("the %q query is not on screen (filter %q)", term, got)
 	}
 	return screen
 }
@@ -175,7 +178,17 @@ func TestLeavingSearchRestoresTheLevelAndItsHeader(t *testing.T) {
 	inside := openRootCategory(t, root, "SQL")
 	applied := searchFor(t, inside, "postgres")
 
-	backToCategory := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	// The first esc clears the query and keeps the user in the search; the second
+	// leaves it for the level it started from.
+	cleared := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	if cleared.level != levelSearch {
+		t.Fatalf("the first esc left the search for level %v, want it to stay", cleared.level)
+	}
+	if got := cleared.list.FilterValue(); got != "" {
+		t.Fatalf("filter = %q after the first esc, want it cleared", got)
+	}
+
+	backToCategory := drive(t, cleared, tea.KeyMsg{Type: tea.KeyEsc})
 	if backToCategory.level != levelDependencies || backToCategory.open != "SQL" {
 		t.Fatalf("esc left the search for level %v open %q, want SQL", backToCategory.level, backToCategory.open)
 	}

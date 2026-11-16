@@ -195,7 +195,7 @@ func TestSelectionsStayAcrossCategories(t *testing.T) {
 	if view := screen.view(); !strings.Contains(view, "[x] Spring Web") {
 		t.Errorf("the Web row is not marked; view:\n%s", view)
 	}
-	if got, want := screen.footer(), "18 dependencies  2 selected: web, data-jpa  ctrl+d finish"; got != want {
+	if got, want := screen.statusLine(), "18 dependencies  2 selected: web, data-jpa"; got != want {
 		t.Errorf("footer = %q, want %q", got, want)
 	}
 
@@ -205,7 +205,7 @@ func TestSelectionsStayAcrossCategories(t *testing.T) {
 	if view := screen.view(); !strings.Contains(view, "[x] Spring Data JPA") {
 		t.Errorf("the SQL row lost its check after visiting Web; view:\n%s", view)
 	}
-	if got := screen.footer(); !strings.Contains(got, "2 selected: web, data-jpa") {
+	if got := screen.statusLine(); !strings.Contains(got, "2 selected: web, data-jpa") {
 		t.Errorf("footer = %q, want both selections counted", got)
 	}
 }
@@ -222,7 +222,7 @@ func TestFooterCountsSelectionsFromOtherCategories(t *testing.T) {
 	screen = drive(t, screen, tea.KeyMsg{Type: tea.KeyEsc})
 
 	screen = openRootCategory(t, screen, "Web")
-	if got, want := screen.footer(), "18 dependencies  1 selected: data-jpa  ctrl+d finish"; got != want {
+	if got, want := screen.statusLine(), "18 dependencies  1 selected: data-jpa"; got != want {
 		t.Errorf("footer inside Web = %q, want %q", got, want)
 	}
 
@@ -253,9 +253,15 @@ func TestSearchReturnsToItsCategoryAndThenToTheRoot(t *testing.T) {
 		t.Fatal("the query was not applied")
 	}
 
-	backToCategory := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	// The query goes first: one esc clears it and the next leaves the search.
+	cleared := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	if cleared.level != levelSearch {
+		t.Fatalf("the first esc left the search for level %v, want it to stay", cleared.level)
+	}
+
+	backToCategory := drive(t, cleared, tea.KeyMsg{Type: tea.KeyEsc})
 	if backToCategory.level != levelDependencies || backToCategory.open != "SQL" {
-		t.Fatalf("esc left the search for level %v open %q, want the SQL category", backToCategory.level, backToCategory.open)
+		t.Fatalf("the second esc left the search for level %v open %q, want the SQL category", backToCategory.level, backToCategory.open)
 	}
 
 	backToRoot := drive(t, backToCategory, tea.KeyMsg{Type: tea.KeyEsc})

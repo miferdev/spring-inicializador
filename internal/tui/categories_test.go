@@ -378,10 +378,18 @@ func TestSearchFromTheRootCoversTheWholeCatalog(t *testing.T) {
 		t.Errorf("result row %q does not show the name and its category", row.String())
 	}
 
-	// esc leaves the search and the root comes back, not an empty frame.
-	back := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	// esc clears the query first, and the next esc leaves the search for the root.
+	cleared := drive(t, applied, tea.KeyMsg{Type: tea.KeyEsc})
+	if cleared.level != levelSearch {
+		t.Errorf("the first esc left level %v, want the search to stay", cleared.level)
+	}
+	if got := cleared.list.FilterValue(); got != "" {
+		t.Errorf("filter = %q after the first esc, want it cleared", got)
+	}
+
+	back := drive(t, cleared, tea.KeyMsg{Type: tea.KeyEsc})
 	if back.level != levelCategories {
-		t.Errorf("esc left level %v, want the category root", back.level)
+		t.Errorf("the second esc left level %v, want the category root", back.level)
 	}
 	if got := len(back.list.Items()); got != len(cat.Categories) {
 		t.Errorf("the root shows %d rows after leaving the search, want %d", got, len(cat.Categories))
