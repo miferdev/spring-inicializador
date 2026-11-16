@@ -54,8 +54,9 @@ Generating a project needs network access to the Initializr API.
 
 ## Usage
 
-On a terminal it opens the wizard. The form asks for the project fields: `tab` moves on, `esc` goes back a
-field, and `esc` on the first field leaves without writing anything. Then the dependencies — the
+On a terminal it opens the wizard. The form asks the project fields in three sections — Identity, Build,
+Versions — one per screen, with `enter` moving on and `esc` going back. `esc` on the first field leaves
+without writing anything. Then the dependencies — the
 categories with their counts, `enter` to open one, `/` to search all 206 from any level, `space` to
 select, `g` to open the focused dependency's guide, `esc` to back out a level and `ctrl+d` to finish. From
 120 columns the focused dependency's description and guides sit beside the list; between 100 and 119 they
