@@ -16,10 +16,10 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** The wizard works end to end: a project form, a dependency pane with categories, search and a
-detail region that explains what you are about to add, then generation. Everything on offer comes from the
-server's catalog, so the choices you see are the choices that exist. The review screen and the run report
-are the next slice.
+**Feature-complete for its own plan; still pre-1.0.** The whole flow works: project form, dependency pane
+with categories and search, a detail region, a review that names every decision before anything is
+written, and a report that says what happened. Everything on offer comes from the server's catalog.
+There is no metadata cache yet, so every run fetches it.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ are the next slice.
 | VS3 | Searchable dependency list | done |
 | VS4 | Category level in the dependency pane | done |
 | VS5 | Detail panel and terminal theming | done |
-| VS6 | Review, run and non-interactive contract | next |
+| VS6 | Review, run and non-interactive contract | done |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
 | VS6 | Review, run and non-interactive contract | planned |
@@ -60,11 +60,17 @@ categories with their counts, `enter` to open one, `/` to search all 206 from an
 select, `g` to open the focused dependency's guide, `esc` to back out a level and `ctrl+d` to finish. From
 120 columns the focused dependency's description and guides sit beside the list; between 100 and 119 they
 collapse to a single line under the row. Flags answer fields instead of being a separate mode: pass two
-and the wizard asks only for the rest. Redirecting stdin or passing `--yes` skips the wizard entirely,
-which is what makes the same binary usable in a pipeline.
+and the wizard asks only for the rest. The wizard only opens when both stdin and stdout are terminals, so
+piping the output gives you a plain log instead of an interface drawn into a file.
+
+A run reports itself, one line per step, and stops at the first failure with the server's own message:
 
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
+Catalog ........ ok   (206 dependencies)
+Generating ..... ok   (15 KB)
+Extracting ..... ok   (24 files)
+Permissions .... ok   (mvnw)
 Created /home/you/projects/demo
 Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 ```
@@ -81,7 +87,8 @@ Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 | `--dry-run` | Print the request it would send and exit without generating |
 | `--server` | Initializr base URL for self-hosted instances (default `start.spring.io`) |
 | `--force` | Replace a destination that already has content |
-| `--yes` | Never prompt, accept every default |
+| `--yes` | Answer every prompt with its default; never destructive |
+| `--no` | Answer every prompt with "no": never replace an output directory, even with `--force` |
 | `--fancy` | Unicode borders instead of ASCII |
 | `--no-color` | Strip every style; `NO_COLOR` in the environment does the same |
 | `--version`, `--help` | |
