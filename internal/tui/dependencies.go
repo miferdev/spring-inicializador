@@ -57,6 +57,12 @@ type dependenciesModel struct {
 	open       string
 	searchFrom dependencyLevel
 
+	// rootCursor is the root row the last category was opened from, so esc comes
+	// back to it instead of to the top (US4.2). Only the root remembers a
+	// position: one cursor per category would be the navigation stack this screen
+	// does not build.
+	rootCursor int
+
 	// selected is the checked set, keyed by dependency id. Nothing derives it
 	// from the visible rows, which is why a filter change cannot drop or
 	// duplicate a selection.
@@ -229,25 +235,41 @@ func (d dependenciesModel) show(level dependencyLevel) dependenciesModel {
 	d.level = level
 
 	d.list.ResetFilter()
-	// A category usually holds fewer rows than the page that was showing, so the
-	// cursor starts over. US4.2 owns remembering where it should come back to.
-	d.list.ResetSelected()
 	if level == levelCategories {
 		d.list.SetDelegate(categoryDelegate{theme: d.theme})
 	} else {
 		d.list.SetDelegate(d.rowDelegate())
 	}
 	d.list.SetItems(d.rows())
+	d.list.Select(d.landingRow(level))
 
 	return d
 }
 
-// openFocusedCategory drills into the category under the cursor.
+// landingRow is the row a level starts on. The root goes back to the category the
+// user last opened, so esc returns them to their place (US4.2); every other level
+// starts at the top, because remembering one cursor per category would be the
+// navigation stack this screen does not build.
+func (d dependenciesModel) landingRow(level dependencyLevel) int {
+	if level != levelCategories || len(d.categories) == 0 {
+		return 0
+	}
+
+	row := max(d.rootCursor, 0)
+	if last := len(d.categories) - 1; row > last {
+		row = last
+	}
+	return row
+}
+
+// openFocusedCategory drills into the category under the cursor, remembering the
+// row it was on so esc can come back to it.
 func (d dependenciesModel) openFocusedCategory() dependenciesModel {
 	item, ok := d.list.SelectedItem().(categoryItem)
 	if !ok {
 		return d
 	}
+	d.rootCursor = d.list.Index()
 	d.open = item.category.Name
 	return d.show(levelDependencies)
 }
