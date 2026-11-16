@@ -18,6 +18,10 @@ type Theme struct {
 	// descriptions VS5 adds later. It carries no layout, so stripping the color
 	// is all --no-color will have to do.
 	Muted lipgloss.Style
+
+	// Notice is the one message the frame can carry, such as a guide it could not
+	// open (US5.3). It is not muted: it is the line the user has to act on.
+	Notice lipgloss.Style
 }
 
 // Default is the theme the wizard starts from: ASCII borders, and one grey for
@@ -26,6 +30,7 @@ func Default() Theme {
 	return Theme{
 		Border: lipgloss.ASCIIBorder(),
 		Muted:  lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "245"}),
+		Notice: lipgloss.NewStyle().Bold(true),
 	}
 }
 

@@ -81,6 +81,11 @@ type dependenciesModel struct {
 	width  int
 	height int
 
+	// notice is the one line the pane had to tell the user, such as a guide it
+	// could not open (US5.3). It is empty in the idle frame, so the goldens never
+	// carry it, and it takes the status line while it is set.
+	notice string
+
 	list  list.Model
 	theme Theme
 }
@@ -246,6 +251,7 @@ func (d dependenciesModel) show(level dependencyLevel) dependenciesModel {
 		d.searchFrom = d.level
 	}
 	d.level = level
+	d.notice = ""
 
 	d.list.ResetFilter()
 	if level == levelCategories {
@@ -461,7 +467,13 @@ func (d dependenciesModel) view() string {
 	} else {
 		lines = append(lines, d.body()...)
 	}
-	lines = append(lines, d.theme.Muted.Render(fitLine(d.statusLine(), width)))
+	status := fitLine(d.statusLine(), width)
+	if d.notice != "" {
+		// The notice is the frame's most urgent line, so it is not muted.
+		lines = append(lines, d.theme.Notice.Render(status))
+	} else {
+		lines = append(lines, d.theme.Muted.Render(status))
+	}
 	lines = append(lines, d.theme.Muted.Render(fitLine(d.keyHints(), width)))
 
 	return strings.Join(lines, "\n")
@@ -606,6 +618,11 @@ const dependenciesFinishHint = "ctrl+d finish"
 func (d dependenciesModel) statusLine() string {
 	width := d.width
 
+	if d.notice != "" {
+		// The message outweighs the counts while it is on screen.
+		return d.notice
+	}
+
 	line := d.resultLine()
 	if line != "" {
 		line += footerGap
@@ -626,9 +643,9 @@ func (d dependenciesModel) keyHints() string {
 		if strings.TrimSpace(d.list.FilterValue()) != "" {
 			esc = "esc clear"
 		}
-		return "enter/space pick" + footerGap + esc + footerGap + dependenciesFinishHint
+		return "enter/space pick" + d.guideHint() + footerGap + esc + footerGap + dependenciesFinishHint
 	default:
-		return "enter/space pick" + footerGap + "/ find" + footerGap + "esc back" + footerGap + dependenciesFinishHint
+		return "enter/space pick" + d.guideHint() + footerGap + "/ find" + footerGap + "esc back" + footerGap + dependenciesFinishHint
 	}
 }
 
@@ -730,6 +747,17 @@ const (
 // open; the footer advertises it. enter on a dependency row checks it, the same
 // as space, so docs/ui.md's "enter toggles" holds at the level it describes.
 func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, dependencyAction) {
+	if opened, ok := msg.(guideOpenedMsg); ok {
+		if opened.err != nil {
+			// The opener failed: keep running, and leave the address on screen so
+			// the user can copy it (US5.3).
+			d.notice = guideFailurePrefix + opened.href
+		} else {
+			d.notice = ""
+		}
+		return d, nil, actionStay
+	}
+
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.Type {
 		case tea.KeyCtrlC:
@@ -780,11 +808,27 @@ func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, depe
 			return d.toggleFocused(), nil, actionStay
 
 		case tea.KeyRunes:
-			if len(key.Runes) == 1 && key.Runes[0] == '/' && !d.list.SettingFilter() && d.level != levelSearch {
-				// Switch before the component starts its filter: it must filter
-				// the whole catalog, never the rows of the level / was pressed on
-				// (D5).
-				d = d.startSearch()
+			if len(key.Runes) != 1 || d.list.SettingFilter() {
+				// A rune being typed into the query is text, never a key.
+				break
+			}
+
+			switch key.Runes[0] {
+			case '/':
+				if d.level != levelSearch {
+					// Switch before the component starts its filter: it must
+					// filter the whole catalog, never the rows of the level / was
+					// pressed on (D5).
+					d = d.startSearch()
+				}
+			case 'g':
+				if d.level != levelCategories {
+					// The category root has no dependency to open a guide for, so
+					// g keeps the component's own meaning there (go to the top).
+					var cmd tea.Cmd
+					d, cmd = d.openFocusedGuide()
+					return d, cmd, actionStay
+				}
 			}
 		}
 	}
