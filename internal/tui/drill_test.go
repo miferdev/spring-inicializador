@@ -226,9 +226,10 @@ func TestFooterCountsSelectionsFromOtherCategories(t *testing.T) {
 		t.Errorf("footer inside Web = %q, want %q", got, want)
 	}
 
-	// The header is still the global picture, not the category's.
-	if got, want := screen.headerLine(), "23 categories  206 dependencies"; got != want {
-		t.Errorf("header = %q, want the global totals %q", got, want)
+	// The header scopes the level and keeps the global totals: the category's own
+	// size is the scope, not the whole picture (US4.3).
+	if got, want := screen.headerLine(), "< Web (18)  23 categories  206 dependencies"; got != want {
+		t.Errorf("header = %q, want %q", got, want)
 	}
 }
 

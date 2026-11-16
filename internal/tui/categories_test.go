@@ -221,11 +221,11 @@ func TestHeaderStatesTheTotals(t *testing.T) {
 		t.Errorf("first frame line = %q, want the header %q", header, want)
 	}
 
-	// Opening a category keeps the totals: they are what the screen is a view of,
-	// not a property of the level. US4.3 adds the level's scope beside them.
+	// Opening a category keeps the totals in the header and puts the level's scope
+	// in front of them; US4.3 pins the exact shapes in scope_test.go.
 	inside := drive(t, screen, tea.KeyMsg{Type: tea.KeyEnter})
-	if got := inside.headerLine(); got != want {
-		t.Errorf("header inside a category = %q, want the same totals %q", got, want)
+	if got := inside.headerLine(); !strings.HasSuffix(got, want) {
+		t.Errorf("header inside a category = %q, want it to end with the totals %q", got, want)
 	}
 }
 

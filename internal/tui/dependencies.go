@@ -192,20 +192,15 @@ func (d dependenciesModel) categoryRows() []list.Item {
 	return rows
 }
 
-// openDependencies is the open category's dependencies, in catalog order.
-func (d dependenciesModel) openDependencies() []catalog.Dependency {
+// openCategory is the category the dependencies level belongs to. The rows and
+// the header both read it, so the list and its scope can never disagree.
+func (d dependenciesModel) openCategory() (catalog.Category, bool) {
 	for _, item := range d.categories {
-		if item.category.Name != d.open {
-			continue
+		if item.category.Name == d.open {
+			return item.category, true
 		}
-
-		dependencies := make([]catalog.Dependency, 0, len(item.category.Dependencies))
-		for _, dependency := range item.category.Dependencies {
-			dependencies = append(dependencies, *dependency)
-		}
-		return dependencies
 	}
-	return nil
+	return catalog.Category{}, false
 }
 
 // rows is the item slice the current level shows. The list is one component: a
@@ -215,7 +210,15 @@ func (d dependenciesModel) rows() []list.Item {
 	case levelSearch:
 		return dependencyRows(d.dependencies)
 	case levelDependencies:
-		return dependencyRows(d.openDependencies())
+		category, ok := d.openCategory()
+		if !ok {
+			return nil
+		}
+		dependencies := make([]catalog.Dependency, 0, len(category.Dependencies))
+		for _, dependency := range category.Dependencies {
+			dependencies = append(dependencies, *dependency)
+		}
+		return dependencyRows(dependencies)
 	default:
 		return d.categoryRows()
 	}
@@ -397,11 +400,68 @@ func (d dependenciesModel) view() string {
 	return d.headerLine() + "\n" + d.list.View() + "\n" + d.theme.Muted.Render(d.footer())
 }
 
-// headerLine is the line above the list: the totals this screen is a view of, in
-// both currencies the wizard counts in. US4.3 owns stating the scope of the level
-// beside them.
+// headerLine is the line above the list: where the user is, and the totals this
+// screen is a view of. The scope leads because it is what the level is about; the
+// totals follow and give way on a narrow terminal, because the scope is the part
+// that cannot be guessed from the rows (US4.3).
 func (d dependenciesModel) headerLine() string {
-	return categoryCount(len(d.categories)) + footerGap + dependencyCount(len(d.dependencies))
+	width := d.list.Width()
+	totals := categoryCount(len(d.categories)) + footerGap + dependencyCount(len(d.dependencies))
+	scope := d.scopeLine(width)
+
+	switch {
+	case scope == "":
+		return fitLine(totals, width)
+	case width <= 0 || ansi.StringWidth(scope+footerGap+totals) <= width:
+		return scope + footerGap + totals
+	default:
+		return fitLine(scope, width)
+	}
+}
+
+// scopeLine is the level in the header, in the ASCII shape docs/ui.md draws: the
+// open category with its size, or the query being searched (D5). The root has no
+// scope of its own, because its totals are the whole story.
+func (d dependenciesModel) scopeLine(width int) string {
+	switch d.level {
+	case levelDependencies:
+		category, ok := d.openCategory()
+		if !ok {
+			return ""
+		}
+
+		count := fmt.Sprintf("(%d)", len(category.Dependencies))
+		budget := width - ansi.StringWidth("< ") - ansi.StringWidth(" ") - ansi.StringWidth(count)
+		return "< " + fitName(category.Name, budget) + " " + count
+
+	case levelSearch:
+		// The quoted query, empty or not: a search that has begun but has nothing
+		// typed is still a search of everything. The + flag makes %q escape
+		// anything outside ASCII, so the header stays one ASCII line whatever the
+		// user typed.
+		return "Search: " + fmt.Sprintf("%+q", strings.TrimSpace(d.list.FilterValue()))
+
+	default:
+		return ""
+	}
+}
+
+// fitName truncates a name to budget cells, "... included", so a caller can keep
+// the text that follows it. A budget too small to hold the mark leaves the name
+// whole, and the caller's line truncation is the backstop.
+func fitName(name string, budget int) string {
+	if budget <= 0 {
+		return name
+	}
+	return ansi.Truncate(name, budget, "...")
+}
+
+// fitLine trims a line the screen composed itself to the terminal width.
+func fitLine(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	return ansi.Truncate(line, width, "...")
 }
 
 // dependenciesFinishHint is the key that leaves the screen with everything it has
