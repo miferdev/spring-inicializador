@@ -66,6 +66,11 @@ type model struct {
 	// options.Options (US6.1).
 	destination string
 
+	// outcome is why the wizard ended, when the user ended it rather than finishing:
+	// esc on the form's first row is leaving on purpose, ctrl+c anywhere is an
+	// interruption, and the caller's exit code depends on which (US6.4).
+	outcome Outcome
+
 	screen screen
 	width  int
 	height int
@@ -138,6 +143,20 @@ func (m model) View() string {
 // the dependency screen opens instead of the program quitting, which is the
 // whole reason a root model exists.
 func (m model) updateProject(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Record the intent before delegating: the form turns esc on its first row into
+	// the same abort ctrl+c uses, so this is the last place the two are told apart
+	// (US6.4).
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.Type {
+		case tea.KeyEsc:
+			if m.form.Form != nil && m.form.atFirstField() {
+				m.outcome = Left
+			}
+		case tea.KeyCtrlC:
+			m.outcome = Interrupted
+		}
+	}
+
 	updated, cmd := m.form.Update(msg)
 	if form, ok := updated.(formModel); ok {
 		m.form = form

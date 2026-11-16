@@ -85,15 +85,15 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 	cat := fixtureCatalog(t)
 
 	type result struct {
-		opts options.Options
-		ok   bool
-		err  error
+		opts    options.Options
+		outcome Outcome
+		err     error
 	}
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, ok, err := Run(cat, nil, nil, Settings{}, ".", strings.NewReader("\x1b"), &stdout)
-		done <- result{opts: opts, ok: ok, err: err}
+		opts, outcome, err := Run(cat, nil, nil, Settings{}, ".", strings.NewReader("\x1b"), &stdout)
+		done <- result{opts: opts, outcome: outcome, err: err}
 	}()
 
 	select {
@@ -101,8 +101,8 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 		if got.err != nil {
 			t.Fatalf("Run: %v", got.err)
 		}
-		if got.ok {
-			t.Fatalf("Run reported ok after esc on the first row (options %+v)", got.opts)
+		if got.outcome != Left {
+			t.Fatalf("Run reported %v after esc on the first row, want %v (options %+v)", got.outcome, Left, got.opts)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run blocked: the scripted esc did not abort the form")

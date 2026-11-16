@@ -176,14 +176,14 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 
 	var stdout bytes.Buffer
 	type result struct {
-		opts options.Options
-		ok   bool
-		err  error
+		opts    options.Options
+		outcome Outcome
+		err     error
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, ".", reader, &stdout)
-		done <- result{opts, ok, err}
+		opts, outcome, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, ".", reader, &stdout)
+		done <- result{opts, outcome, err}
 	}()
 
 	select {
@@ -191,8 +191,8 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 		if got.err != nil {
 			t.Fatalf("Run: %v", got.err)
 		}
-		if !got.ok {
-			t.Fatal("Run reported an abort for a fully answered form")
+		if got.outcome != Finished {
+			t.Fatalf("Run reported %v for a fully answered form, want %v", got.outcome, Finished)
 		}
 		if stdout.Len() != 0 {
 			t.Errorf("Run wrote %q to the terminal, want no program", stdout.String())

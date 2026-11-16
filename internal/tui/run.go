@@ -93,11 +93,11 @@ func (m formModel) atFirstField() bool {
 // project goes (--output); it is a fact of the review, not part of the request, so
 // it never enters options.Options (US6.1).
 //
-// ok is false when the user aborts with ctrl+c on any screen, or with esc on the
-// form's first row where there is no previous row to step back to. That is not an
-// error: there is nothing to do, and the caller exits successfully without writing
-// anything.
-func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+// The outcome says how it ended: Finished with options to write, Left when the user
+// backed out on purpose (esc on the form's first row), or Interrupted when ctrl+c
+// stopped it on any screen. Left and Interrupted are not errors — the caller decides
+// the exit code from the outcome — and neither may write anything (US6.4).
+func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, Outcome, error) {
 	theme := NewTheme(settings)
 	if settings.NoColor {
 		// The form is painted by huh and the rows by the list component: only the
@@ -108,7 +108,7 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 	if !project.asks() {
 		opts := optionsFromState(cat, project.state)
 		opts.Deps = dependencies
-		return opts, true, nil
+		return opts, Finished, nil
 	}
 
 	// The root model decides where enter and esc lead, so the form keeps its
@@ -120,22 +120,31 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 		tea.WithOutput(stdout),
 	).Run()
 
-	// Bubble Tea reports the ctrl+c interruption as an error; the form has
-	// already recorded the abort, and both mean "nothing to do".
+	// Bubble Tea reports both aborts as the same interrupt; the model recorded which
+	// one it was before the form collapsed them, and the caller's exit code depends
+	// on the difference (US6.4).
 	if errors.Is(err, tea.ErrInterrupted) {
-		return options.Options{}, false, nil
+		if wizard, ok := last.(model); ok && wizard.outcome == Left {
+			return options.Options{}, Left, nil
+		}
+		return options.Options{}, Interrupted, nil
 	}
 	if err != nil {
-		return options.Options{}, false, fmt.Errorf("tui: running the wizard: %w", err)
+		return options.Options{}, Finished, fmt.Errorf("tui: running the wizard: %w", err)
 	}
 
 	wizard, ok := last.(model)
 	if !ok {
-		return options.Options{}, false, fmt.Errorf("tui: wizard returned %T, want tui.model", last)
+		return options.Options{}, Finished, fmt.Errorf("tui: wizard returned %T, want tui.model", last)
 	}
 	if wizard.project.form != nil && wizard.project.form.State == huh.StateAborted {
-		return options.Options{}, false, nil
+		// Defensive: the abort reaches the program as an interrupt, so this is only
+		// reachable if a screen stops delivering that command.
+		if wizard.outcome == Interrupted {
+			return options.Options{}, Interrupted, nil
+		}
+		return options.Options{}, Left, nil
 	}
 
-	return wizard.finished(), true, nil
+	return wizard.finished(), Finished, nil
 }

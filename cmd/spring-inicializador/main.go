@@ -74,7 +74,8 @@ provide. Anything else stays non-interactive.
 
 The archive is extracted into <output>/<artifact-id>.
 
-Exit codes: 0 success, 1 server or filesystem failure, 2 usage error.
+Exit codes: 0 success, 1 server or filesystem failure, 2 usage error,
+130 interrupted (ctrl+c); nothing is written on a failure or an interruption.
 `
 
 func main() {
@@ -373,12 +374,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// its rows: the ids arrive already checked, and the screen decides.
 		// --output is where the review says the project will land; it is not part of
 		// the request the server receives (US6.1).
-		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), cmd.output, os.Stdin, stdout)
+		chosen, outcome, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), cmd.output, os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}
-		if !ok {
-			// Aborted with ctrl+c: nothing to do, nothing written.
+		switch outcome {
+		case tui.Interrupted:
+			// ctrl+c at any screen: nothing was written, and an interruption is not a
+			// failure the tool has to explain (US6.4).
+			return exitInterrupted
+		case tui.Left:
+			// Left on purpose: nothing to do, nothing written.
 			return exitOK
 		}
 		opts = chosen

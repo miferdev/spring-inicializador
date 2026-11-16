@@ -25,14 +25,14 @@ func TestDependenciesReachTheWizardAndTheRequest(t *testing.T) {
 	var seeded []string
 	var reviewed string
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, tui.Outcome, error) {
 		seeded = append([]string(nil), dependencies...)
 		reviewed = destination
 
 		// What the screen would return after the user unchecked data-jpa.
 		chosen := options.Defaults(cat)
 		chosen.Deps = []string{"web"}
-		return chosen, true, nil
+		return chosen, tui.Finished, nil
 	}
 	t.Cleanup(func() { runForm = original })
 
