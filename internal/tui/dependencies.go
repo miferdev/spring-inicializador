@@ -607,10 +607,11 @@ func fitLine(line string, width int) string {
 }
 
 // dependenciesFinishHint is the key that leaves the screen with everything it has
-// picked. enter cannot do it any more: at the root it opens a category, and on a
-// dependency row it checks one. The hint row always shows it, because a key
-// nobody can discover is not a key.
-const dependenciesFinishHint = "ctrl+d finish"
+// picked: since US6.1 that means opening the review, not ending the run. enter
+// cannot do it any more: at the root it opens a category, and on a dependency row
+// it checks one. The hint row always shows it, because a key nobody can discover is
+// not a key.
+const dependenciesFinishHint = "ctrl+d review"
 
 // statusLine is the first footer line: what the level shows and what is checked.
 // The ids give way when the room runs out; the count survives, because the number
@@ -740,8 +741,8 @@ const (
 
 // update handles one message and reports what the root must do next. The keys
 // this screen decides are the ones the component cannot know: esc is level
-// aware, enter opens a category or checks a dependency, ctrl+d finishes, and /
-// always means the whole catalog.
+// aware, enter opens a category or checks a dependency, ctrl+d opens the review,
+// and / always means the whole catalog.
 //
 // ctrl+d replaced VS3's enter as the finish key, because enter now has a level to
 // open; the footer advertises it. enter on a dependency row checks it, the same

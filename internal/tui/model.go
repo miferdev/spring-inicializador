@@ -1,9 +1,10 @@
 package tui
 
-// The root model (US3.1): one Bubble Tea model with a screen enum, as
-// docs/ui.md describes. The screens are views over one formState, never copies
-// of it, which is what makes going back free: returning from the dependency
-// screen cannot lose an answer because there is nothing to restore.
+// The root model (US3.1): one Bubble Tea model with a screen enum. The screens are
+// views over one formState, never copies of it, which is what makes going back
+// free: returning from the dependency screen cannot lose an answer because there
+// is nothing to restore. The wizard is sequential (D9): project form, dependency
+// pane, review.
 
 import (
 	"fmt"
@@ -23,6 +24,7 @@ type screen int
 const (
 	screenProject screen = iota
 	screenDependencies
+	screenReview
 )
 
 // String names the screen, so a test failure says where the wizard stopped.
@@ -32,6 +34,8 @@ func (s screen) String() string {
 		return "project"
 	case screenDependencies:
 		return "dependencies"
+	case screenReview:
+		return "review"
 	default:
 		return fmt.Sprintf("screen(%d)", int(s))
 	}
@@ -46,33 +50,47 @@ const (
 )
 
 // model is the root Bubble Tea model. It owns the screens and nothing else: the
-// answers live in project.state, and both screens read that one value.
+// answers live in project.state, and every screen reads that one value.
 type model struct {
+	// catalog is what the review reads its labels from; it is also what the
+	// options are resolved against, so the wizard is built from exactly one.
+	catalog *catalog.Catalog
+
 	project *projectForm
 	form    formModel
 	deps    dependenciesModel
-	screen  screen
-	width   int
-	height  int
+	theme   Theme
+
+	// destination is where the command line said the project should be written
+	// (--output). It is a review fact, not a request parameter, so it never enters
+	// options.Options (US6.1).
+	destination string
+
+	screen screen
+	width  int
+	height int
 }
 
 // newModel builds the wizard over a project form the command line already
 // answered, with the dependency ids --deps already answered checked. Everything
 // is created once: switching screens reuses the same state and the same list, so
 // the round trip allocates nothing and loses nothing.
-func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string, theme Theme) model {
+func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string, theme Theme, destination string) model {
 	return model{
-		project: project,
-		form:    newFormModel(project),
-		deps:    newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, theme),
-		screen:  screenProject,
+		catalog:     cat,
+		project:     project,
+		form:        newFormModel(project),
+		deps:        newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, theme),
+		theme:       theme,
+		destination: destination,
+		screen:      screenProject,
 	}
 }
 
 // finished is the options the wizard built: the project values it edited and the
 // checked dependencies, in catalog order.
-func (m model) finished(cat *catalog.Catalog) options.Options {
-	opts := optionsFromState(cat, m.project.state)
+func (m model) finished() options.Options {
+	opts := optionsFromState(m.catalog, m.project.state)
 	opts.Deps = m.deps.chosen()
 	return opts
 }
@@ -92,7 +110,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deps = m.deps.resize(size.Width, size.Height)
 	}
 
-	if m.screen == screenDependencies {
+	switch m.screen {
+	case screenReview:
+		return m.updateReview(msg)
+	case screenDependencies:
 		return m.updateDependencies(msg)
 	}
 	return m.updateProject(msg)
@@ -100,7 +121,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the visible screen.
 func (m model) View() string {
-	if m.screen == screenDependencies {
+	switch m.screen {
+	case screenReview:
+		return m.reviewView()
+	case screenDependencies:
 		return m.deps.view()
 	}
 	if m.form.Form == nil {
@@ -133,7 +157,8 @@ func (m model) updateProject(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateDependencies delegates to the list and applies the navigation the list
-// cannot decide: back to the form, or the end of the run.
+// cannot decide: back to the form, or on to the review, which is now the last
+// screen before anything is written (US6.1).
 func (m model) updateDependencies(msg tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd, action := m.deps.update(msg)
 	m.deps = updated
@@ -142,9 +167,31 @@ func (m model) updateDependencies(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionBack:
 		m.showProjectForm()
 	case actionFinish:
-		return m, tea.Quit
+		m.screen = screenReview
 	}
 	return m, cmd
+}
+
+// updateReview handles the confirmation screen: enter generates, esc goes back to
+// the dependency pane, ctrl+c aborts. Nothing else matters here, because the
+// review holds no state of its own.
+func (m model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	switch key.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Interrupt
+	case tea.KeyEnter:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		// The dependency pane kept its level, cursor, query and selection the whole
+		// time: going back is showing it again.
+		m.screen = screenDependencies
+	}
+	return m, nil
 }
 
 // showProjectForm comes back to the form. The huh form that completed renders

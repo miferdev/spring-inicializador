@@ -182,7 +182,7 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, reader, &stdout)
+		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, ".", reader, &stdout)
 		done <- result{opts, ok, err}
 	}()
 

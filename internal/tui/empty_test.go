@@ -188,24 +188,24 @@ func TestKeyHintsAtEachLevel(t *testing.T) {
 		{
 			name:   "root",
 			screen: root,
-			want:   "enter open  / find  esc back  ctrl+d finish",
+			want:   "enter open  / find  esc back  ctrl+d review",
 		},
 		{
 			// Web is focused on Spring Web, which has guides, so the g hint is
 			// there too (US5.3).
 			name:   "category",
 			screen: openRootCategory(t, root, "Web"),
-			want:   "enter/space pick  g guide  / find  esc back  ctrl+d finish",
+			want:   "enter/space pick  g guide  / find  esc back  ctrl+d review",
 		},
 		{
 			name:   "search",
 			screen: searchFor(t, root, "postgres"),
-			want:   "enter/space pick  esc clear  ctrl+d finish",
+			want:   "enter/space pick  esc clear  ctrl+d review",
 		},
 		{
 			name:   "search without a query",
 			screen: drive(t, root, keyRunes("/")),
-			want:   "enter/space pick  esc back  ctrl+d finish",
+			want:   "enter/space pick  esc back  ctrl+d review",
 		},
 	}
 

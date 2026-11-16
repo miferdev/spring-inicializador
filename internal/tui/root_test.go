@@ -41,7 +41,7 @@ func newSeededHarness(t *testing.T, dependencies ...string) *harness {
 	t.Helper()
 
 	cat := fixtureCatalog(t)
-	root := newModel(cat, newProjectForm(cat, nil, Default()), dependencies, Default())
+	root := newModel(cat, newProjectForm(cat, nil, Default()), dependencies, Default(), ".")
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
 	next, _ := root.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -300,23 +300,6 @@ func TestEscClearsTheQueryBeforeItLeavesTheScreen(t *testing.T) {
 	h.press(tea.KeyEsc)
 	if h.model.screen != screenProject {
 		t.Errorf("screen = %v after the third esc, want the project form", h.model.screen)
-	}
-}
-
-// TestCtrlDFinishesTheRun keeps the wizard able to end: enter has a level to open
-// now, so ctrl+d is the key that hands the answers back to the caller (US4.1) and
-// a project can be generated.
-func TestCtrlDFinishesTheRun(t *testing.T) {
-	h := newHarness(t)
-	h.openDependencies()
-
-	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	msgs := commandMessages(cmd)
-	if len(msgs) == 0 {
-		t.Fatal("ctrl+d on the dependency screen produced no message; the run would hang")
-	}
-	if _, ok := msgs[0].(tea.QuitMsg); !ok {
-		t.Errorf("ctrl+d produced %T, want tea.QuitMsg", msgs[0])
 	}
 }
 

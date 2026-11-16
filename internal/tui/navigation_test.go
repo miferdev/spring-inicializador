@@ -92,7 +92,7 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, ok, err := Run(cat, nil, nil, Settings{}, strings.NewReader("\x1b"), &stdout)
+		opts, ok, err := Run(cat, nil, nil, Settings{}, ".", strings.NewReader("\x1b"), &stdout)
 		done <- result{opts: opts, ok: ok, err: err}
 	}()
 

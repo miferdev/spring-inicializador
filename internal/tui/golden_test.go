@@ -67,6 +67,27 @@ func TestGoldenDependencyPane(t *testing.T) {
 	}
 }
 
+// TestGoldenReviewFrames pins the review at both sizes. Its lines are fixed, so the
+// two frames are identical: the golden proves the summary does not depend on the
+// width (US6.1).
+func TestGoldenReviewFrames(t *testing.T) {
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{name: "80x24", width: 80, height: 24},
+		{name: "120x30", width: 120, height: 30},
+	} {
+		t.Run(size.name, func(t *testing.T) {
+			// The default answers plus two dependencies: a state the flags can reach.
+			wizard := reviewScreen(t, size.width, size.height, nil, []string{"web", "data-jpa"}, ".")
+			wizard.screen = screenReview
+
+			compareGolden(t, filepath.Join("testdata", "review-"+size.name+".golden"), wizard.View(), Default().Border)
+		})
+	}
+}
+
 // compareGolden compares a frame to its golden file, or rewrites the file when the
 // test runs with -update. The frame is ASCII, except that a frame drawn with a
 // Unicode border may use that border's own glyphs.

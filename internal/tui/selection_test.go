@@ -273,8 +273,7 @@ func TestSelectionSurvivesFiltering(t *testing.T) {
 
 // TestFinishReturnsTheCheckedSetInCatalogOrder proves the request two identical
 // selections produce is identical: ids leave in catalog order, not in the order
-// they were checked, and ctrl+d is what hands them over (US4.1 moved finishing
-// off enter, which now opens categories).
+// they were checked. ctrl+d opens the review and its enter hands them over (US6.1).
 func TestFinishReturnsTheCheckedSetInCatalogOrder(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
@@ -284,16 +283,29 @@ func TestFinishReturnsTheCheckedSetInCatalogOrder(t *testing.T) {
 		h.toggleDependency(id)
 	}
 
-	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	msgs := commandMessages(cmd)
-	if len(msgs) == 0 {
-		t.Fatal("ctrl+d on the dependency screen produced no message; the run would hang")
+	next, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	reviewed, ok := next.(model)
+	if !ok {
+		t.Fatalf("Update returned %T, want tui.model", next)
 	}
-	if _, ok := msgs[0].(tea.QuitMsg); !ok {
-		t.Fatalf("ctrl+d produced %T, want tea.QuitMsg", msgs[0])
+	if reviewed.screen != screenReview {
+		t.Fatalf("screen = %v after ctrl+d, want the review", reviewed.screen)
 	}
 
-	got := h.model.finished(h.cat).Deps
+	generated, cmd := reviewed.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := commandMessages(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("enter on the review produced no message; the run would hang")
+	}
+	if _, ok := msgs[0].(tea.QuitMsg); !ok {
+		t.Fatalf("enter produced %T, want tea.QuitMsg", msgs[0])
+	}
+
+	wizard, ok := generated.(model)
+	if !ok {
+		t.Fatalf("Update returned %T, want tui.model", generated)
+	}
+	got := wizard.finished().Deps
 	want := []string{"web", "data-jpa", "h2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Deps = %v, want %v in catalog order", got, want)
@@ -331,7 +343,7 @@ func TestSeededDependenciesArriveChecked(t *testing.T) {
 	}
 
 	// Finishing without touching a key returns exactly the seeded set.
-	if got, want := h.model.finished(h.cat).Deps, []string{"web", "data-jpa"}; !reflect.DeepEqual(got, want) {
+	if got, want := h.model.finished().Deps, []string{"web", "data-jpa"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Deps = %v, want %v", got, want)
 	}
 }
@@ -392,7 +404,7 @@ func TestSeededIDsTheCatalogDoesNotPublishSurvive(t *testing.T) {
 	if got := h.model.deps.statusLine(); !strings.Contains(got, "3 selected: web, adbc, webb") {
 		t.Errorf("footer = %q, want the flag ids kept", got)
 	}
-	if got, want := h.model.finished(h.cat).Deps, []string{"web", "adbc", "webb"}; !reflect.DeepEqual(got, want) {
+	if got, want := h.model.finished().Deps, []string{"web", "adbc", "webb"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Deps = %v, want %v", got, want)
 	}
 }

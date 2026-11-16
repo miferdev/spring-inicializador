@@ -22,9 +22,11 @@ func TestDependenciesReachTheWizardAndTheRequest(t *testing.T) {
 	terminalStdin(t)
 
 	var seeded []string
+	var reviewed string
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		seeded = append([]string(nil), dependencies...)
+		reviewed = destination
 
 		// What the screen would return after the user unchecked data-jpa.
 		chosen := options.Defaults(cat)
@@ -42,6 +44,9 @@ func TestDependenciesReachTheWizardAndTheRequest(t *testing.T) {
 	}
 	if want := []string{"web", "data-jpa"}; !reflect.DeepEqual(seeded, want) {
 		t.Errorf("the wizard was seeded with %v, want the --deps value %v", seeded, want)
+	}
+	if reviewed != output {
+		t.Errorf("the wizard was told the destination %q, want the --output %q", reviewed, output)
 	}
 	if got := fake.generationForm.Get("dependencies"); got != "web" {
 		t.Errorf("dependencies = %q, want the set the screen returned, web", got)

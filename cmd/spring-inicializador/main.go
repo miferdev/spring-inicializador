@@ -349,7 +349,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if !cmd.yes && interactiveStdin(os.Stdin) && tui.Asks(c, provided) {
 		// --deps answers the dependency screen the way the project flags answer
 		// its rows: the ids arrive already checked, and the screen decides.
-		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), os.Stdin, stdout)
+		// --output is where the review says the project will land; it is not part of
+		// the request the server receives (US6.1).
+		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), cmd.output, os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}

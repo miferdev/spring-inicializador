@@ -1,0 +1,14 @@
+Review
+Project       demo
+Coordinates   com.example:demo
+Package       com.example.demo
+Build         Maven (mvnw)
+Boot          4.1.2.RELEASE
+Language      Java
+Java          17
+Packaging     Jar
+Deps          web, data-jpa
+Destination   .
+
+[ Generate ]
+enter generate  esc back

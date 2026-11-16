@@ -87,15 +87,17 @@ func (m formModel) atFirstField() bool {
 // program is started at all: the options come back without touching the
 // terminal, with the dependencies exactly as the flags gave them.
 //
-// The wizard ends with enter on the dependency list, the last screen this slice
-// ships; it returns the checked dependencies in catalog order. US3.3 measures
-// that list and VS6 adds the review step that follows it.
+// The wizard ends with enter on the review screen, which is the last screen: it
+// returns the options it summarised, with the checked dependencies in catalog
+// order, and the caller writes them. destination is where the command line said the
+// project goes (--output); it is a fact of the review, not part of the request, so
+// it never enters options.Options (US6.1).
 //
-// ok is false when the user aborts with ctrl+c on either screen, or with esc on
-// the form's first row where there is no previous row to step back to. That is
-// not an error: there is nothing to do, and the caller exits successfully
-// without writing anything.
-func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+// ok is false when the user aborts with ctrl+c on any screen, or with esc on the
+// form's first row where there is no previous row to step back to. That is not an
+// error: there is nothing to do, and the caller exits successfully without writing
+// anything.
+func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 	theme := NewTheme(settings)
 	if settings.NoColor {
 		// The form is painted by huh and the rows by the list component: only the
@@ -113,7 +115,7 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 	// default commands (none): a completed form opens the dependency list
 	// instead of quitting the program.
 	last, err := tea.NewProgram(
-		newModel(cat, project, dependencies, theme),
+		newModel(cat, project, dependencies, theme, destination),
 		tea.WithInput(stdin),
 		tea.WithOutput(stdout),
 	).Run()
@@ -135,5 +137,5 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 		return options.Options{}, false, nil
 	}
 
-	return wizard.finished(cat), true, nil
+	return wizard.finished(), true, nil
 }
