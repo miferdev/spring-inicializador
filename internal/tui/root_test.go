@@ -39,12 +39,20 @@ func newHarness(t *testing.T) *harness {
 // answered, the way a run started with --deps enters it.
 func newSeededHarness(t *testing.T, dependencies ...string) *harness {
 	t.Helper()
+	return newSizedHarness(t, 120, 30, dependencies...)
+}
+
+// newSizedHarness builds the wizard at the size a terminal reports. The form takes
+// its width from the first size message only, so the size has to be the one the
+// test wants from the start: a later resize would not reach it.
+func newSizedHarness(t *testing.T, width, height int, dependencies ...string) *harness {
+	t.Helper()
 
 	cat := fixtureCatalog(t)
 	root := newModel(cat, newProjectForm(cat, nil, Default()), dependencies, Default(), ".")
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
-	next, _ := root.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	next, _ := root.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	sized, ok := next.(model)
 	if !ok {
 		t.Fatalf("Update returned %T, want tui.model", next)

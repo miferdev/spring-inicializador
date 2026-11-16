@@ -5,6 +5,9 @@
 package tui
 
 import (
+	"fmt"
+	"slices"
+
 	"github.com/charmbracelet/huh"
 
 	"github.com/miferdev/spring-inicializador/internal/catalog"
@@ -89,12 +92,63 @@ type formState struct {
 // field yields a package name the server accepts.
 const autoMarker = "(auto)"
 
+// section is one page of the project form: a named slice of the rows that belong
+// together. huh renders one group at a time, so a section is what the user reads
+// while the other sections wait off screen (US7.1).
+type section struct {
+	name   string
+	fields []field
+}
+
+// sectionKeys lists the form's pages in display order. A row belongs to exactly
+// one page, which is what keeps the flat field list and the pages in step.
+var sectionKeys = []struct {
+	name string
+	keys []Key
+}{
+	{name: "Identity", keys: []Key{KeyGroupID, KeyArtifactID, KeyName, KeyPackageName}},
+	{name: "Build", keys: []Key{KeyBuild, KeyLanguage, KeyPackaging}},
+	{name: "Versions", keys: []Key{KeyJavaVersion, KeyBootVersion}},
+}
+
+// splitSections partitions the described rows into the pages the form shows,
+// keeping the page order and the row order inside a page. A page whose rows the
+// flags all answered keeps its place and simply has no rows (US7.2 decides whether
+// it keeps its number).
+func splitSections(fields []field) []section {
+	sections := make([]section, len(sectionKeys))
+	for i, known := range sectionKeys {
+		sections[i] = section{name: known.name}
+	}
+
+	for _, f := range fields {
+		for i, known := range sectionKeys {
+			if slices.Contains(known.keys, f.key) {
+				sections[i].fields = append(sections[i].fields, f)
+				break
+			}
+		}
+	}
+	return sections
+}
+
+// title is the line the frame shows above a section: its name and its place among
+// every section, so nothing has to be counted by eye. The total is the number of
+// sections, not of the ones with rows, until US7.2 renumbers the sections it hides
+// (US7.1).
+func (s section) title(index, total int) string {
+	return fmt.Sprintf("%s %d/%d", s.name, index, total)
+}
+
 // projectForm is the project form: the field descriptions, the state they
 // edit, and the huh form that renders them.
 type projectForm struct {
-	fields []field
-	state  formState
-	form   *huh.Form
+	// fields is every row the form asks, in display order; sections is the same
+	// list partitioned into the pages that are shown one at a time.
+	sections []section
+	fields   []field
+	state    formState
+	form     *huh.Form
 
 	// packageInput is the package row. The update loop needs it to show a
 	// freshly derived value and the (auto) marker, because huh's input keeps a
@@ -116,7 +170,12 @@ type projectForm struct {
 // them. It is the only constructor: tests assert on the fields it produces and
 // Run renders the same form.
 func newProjectForm(cat *catalog.Catalog, provided Values, theme Theme) *projectForm {
-	form := &projectForm{fields: buildFields(cat, provided), theme: theme}
+	fields := buildFields(cat, provided)
+	form := &projectForm{
+		sections: splitSections(fields),
+		fields:   fields,
+		theme:    theme,
+	}
 	form.firstKey = firstAskedKey(form.fields)
 
 	values := form.state.pointers()
@@ -149,7 +208,7 @@ func newProjectForm(cat *catalog.Catalog, provided Values, theme Theme) *project
 		}
 	}
 
-	form.form, form.packageInput = newForm(form.fields, values, theme)
+	form.form, form.packageInput = newForm(form.sections, values, theme)
 	if form.packageInput != nil {
 		form.packageInput.Description(form.state.packageMarker())
 	}
@@ -162,7 +221,7 @@ func newProjectForm(cat *catalog.Catalog, provided Values, theme Theme) *project
 // and nothing here copies them.
 func (f *projectForm) reopen() {
 	values := f.state.pointers()
-	f.form, f.packageInput = newForm(f.fields, values, f.theme)
+	f.form, f.packageInput = newForm(f.sections, values, f.theme)
 	if f.packageInput != nil {
 		f.packageInput.Description(f.state.packageMarker())
 	}
@@ -368,29 +427,40 @@ func (s *formState) packageMarker() string {
 	return ""
 }
 
-// newForm renders the described fields as one huh form, in one group so every
-// row stays on a single page. It also returns the package input, which the
-// update loop pushes the derived value and the (auto) marker into.
+// newForm renders the sections as one huh form with one group per section, so
+// exactly one page of rows is on screen at a time and enter walks to the next
+// section. It also returns the package input, which the update loop pushes the
+// derived value and the (auto) marker into.
 //
-// A form with nothing to ask has no form at all: huh panics on an empty group
-// because it always expects a selected field, and a Run that renders it would be
-// asking nothing anyway.
-func newForm(fields []field, values map[Key]*string, theme Theme) (*huh.Form, *huh.Input) {
-	if len(fields) == 0 {
+// A section with no rows is left out: huh panics on a group without fields
+// because it always expects a selected one, and a section the flags answered
+// completely has nothing to render. A form with no sections left has no form at
+// all, and a Run that rendered it would be asking nothing anyway (US7.1; US7.2
+// hides such a section and renumbers the rest).
+func newForm(sections []section, values map[Key]*string, theme Theme) (*huh.Form, *huh.Input) {
+	groups := make([]*huh.Group, 0, len(sections))
+	var packageInput *huh.Input
+	for i, section := range sections {
+		if len(section.fields) == 0 {
+			continue
+		}
+
+		widgets := make([]huh.Field, 0, len(section.fields))
+		for _, f := range section.fields {
+			widget := f.widget(values[f.key])
+			if f.key == KeyPackageName {
+				packageInput, _ = widget.(*huh.Input)
+			}
+			widgets = append(widgets, widget)
+		}
+		groups = append(groups, huh.NewGroup(widgets...).Title(section.title(i+1, len(sections))))
+	}
+
+	if len(groups) == 0 {
 		return nil, nil
 	}
 
-	widgets := make([]huh.Field, 0, len(fields))
-	var packageInput *huh.Input
-	for _, f := range fields {
-		widget := f.widget(values[f.key])
-		if f.key == KeyPackageName {
-			packageInput, _ = widget.(*huh.Input)
-		}
-		widgets = append(widgets, widget)
-	}
-
-	form := huh.NewForm(huh.NewGroup(widgets...)).WithTheme(theme.huhForm())
+	form := huh.NewForm(groups...).WithTheme(theme.huhForm())
 	if focused := form.GetFocusedField(); focused != nil {
 		// huh focuses the first row from Init, and only the program calls Init
 		// once. A form rebuilt after a screen change never sees it, so focus the
