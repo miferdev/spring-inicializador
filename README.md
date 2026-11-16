@@ -16,9 +16,10 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** The wizard works end to end: a project form, a dependency pane with categories and search,
-then generation. Everything on offer comes from the server's catalog, so the choices you see are the
-choices that exist. The detail panel and terminal theming are the next slice.
+**Pre-alpha.** The wizard works end to end: a project form, a dependency pane with categories, search and a
+detail region that explains what you are about to add, then generation. Everything on offer comes from the
+server's catalog, so the choices you see are the choices that exist. The review screen and the run report
+are the next slice.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
@@ -27,7 +28,8 @@ choices that exist. The detail panel and terminal theming are the next slice.
 | VS2 | Project form with flag parity | done |
 | VS3 | Searchable dependency list | done |
 | VS4 | Category level in the dependency pane | done |
-| VS5 | Detail panel and terminal theming | next |
+| VS5 | Detail panel and terminal theming | done |
+| VS6 | Review, run and non-interactive contract | next |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
 | VS6 | Review, run and non-interactive contract | planned |
@@ -55,9 +57,11 @@ Generating a project needs network access to the Initializr API.
 On a terminal it opens the wizard. The form asks for the project fields: `tab` moves on, `esc` goes back a
 field, and `esc` on the first field leaves without writing anything. Then the dependencies — the
 categories with their counts, `enter` to open one, `/` to search all 206 from any level, `space` to
-select, `esc` to back out a level and `ctrl+d` to finish. Flags answer fields instead of being a separate
-mode: pass two and the wizard asks only for the rest. Redirecting stdin or passing `--yes` skips the
-wizard entirely, which is what makes the same binary usable in a pipeline.
+select, `g` to open the focused dependency's guide, `esc` to back out a level and `ctrl+d` to finish. From
+120 columns the focused dependency's description and guides sit beside the list; between 100 and 119 they
+collapse to a single line under the row. Flags answer fields instead of being a separate mode: pass two
+and the wizard asks only for the rest. Redirecting stdin or passing `--yes` skips the wizard entirely,
+which is what makes the same binary usable in a pipeline.
 
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
@@ -78,6 +82,8 @@ Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 | `--server` | Initializr base URL for self-hosted instances (default `start.spring.io`) |
 | `--force` | Replace a destination that already has content |
 | `--yes` | Never prompt, accept every default |
+| `--fancy` | Unicode borders instead of ASCII |
+| `--no-color` | Strip every style; `NO_COLOR` in the environment does the same |
 | `--version`, `--help` | |
 
 Exit codes: `0` success, `1` server or filesystem failure, `2` usage error, `130` interrupted.
