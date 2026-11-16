@@ -75,6 +75,10 @@ func TestRunReportsEveryStep(t *testing.T) {
 	if got := outputLines(stdout); !reflect.DeepEqual(got, want) {
 		t.Errorf("stdout lines =\n%v\nwant\n%v", got, want)
 	}
+	// One line per event: no padding, no spinner frame, no repeated line (US6.3).
+	if strings.Contains(stdout.String(), "\n\n") {
+		t.Errorf("stdout has a blank line; a piped run logs one line per event:\n%q", stdout.String())
+	}
 	assertNoANSI(t, stdout.String())
 }
 

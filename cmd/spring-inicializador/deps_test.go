@@ -20,6 +20,7 @@ import (
 func TestDependenciesReachTheWizardAndTheRequest(t *testing.T) {
 	fake := newFakeInitializr(t)
 	terminalStdin(t)
+	terminalStdout(t)
 
 	var seeded []string
 	var reviewed string

@@ -263,6 +263,16 @@ var interactiveStdin = func(f *os.File) bool {
 	return term.IsTerminal(f.Fd())
 }
 
+// interactiveStdout reports whether the run's report is going to a terminal. The
+// wizard owns the alternate screen and moves the cursor, so a run whose output is a
+// pipe or a file must never open it: that would corrupt the log it was piped into
+// and, as a non-terminal reader, can fail outright (US6.3). Like interactiveStdin it
+// is a variable, so a test can answer the question without a terminal of its own.
+var interactiveStdout = func(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	return ok && term.IsTerminal(file.Fd())
+}
+
 // appearance is the theming a run asked for. NO_COLOR is honoured by presence, not
 // by value — even an empty setting disables color, which is what the convention
 // says — and --fancy is only ever opt-in.
@@ -354,10 +364,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	opts := resolve(c, cmd, passed)
 	provided := providedByFlags(cmd, passed)
 
-	// On a terminal the form asks for exactly what the flags did not answer.
-	// --yes and a redirected stdin both keep a run scripted, and a run whose
-	// flags answered every row has nothing left to ask.
-	if !cmd.yes && interactiveStdin(os.Stdin) && tui.Asks(c, provided) {
+	// On a terminal, with a terminal output, the form asks for exactly what the
+	// flags did not answer. --yes, a redirected stdin and a piped stdout all keep a
+	// run scripted: a wizard painting into a pipe would destroy the log, and there
+	// is nobody there to answer it anyway.
+	if !cmd.yes && interactiveStdin(os.Stdin) && interactiveStdout(stdout) && tui.Asks(c, provided) {
 		// --deps answers the dependency screen the way the project flags answer
 		// its rows: the ids arrive already checked, and the screen decides.
 		// --output is where the review says the project will land; it is not part of

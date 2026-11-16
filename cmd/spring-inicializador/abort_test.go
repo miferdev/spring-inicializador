@@ -21,9 +21,8 @@ func TestAbortedFormWritesNothing(t *testing.T) {
 
 	// Pretend a person is at the terminal: the real check needs an isatty, and
 	// the form itself is driven below with the esc byte a terminal would send.
-	originalStdin := interactiveStdin
-	interactiveStdin = func(*os.File) bool { return true }
-	t.Cleanup(func() { interactiveStdin = originalStdin })
+	terminalStdin(t)
+	terminalStdout(t)
 
 	formCalls := 0
 	originalForm := runForm

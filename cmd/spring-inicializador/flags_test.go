@@ -136,6 +136,16 @@ func TestPublishedVersionFlagsFailBeforeGeneration(t *testing.T) {
 // The real check is isatty: /dev/null is a character device but not a terminal,
 // so a test that swapped os.Stdin for it would silently exercise the scripted
 // path instead of the interactive one.
+// terminalStdout makes a run believe its report is going to a terminal, so the
+// wizard opens on the paths where it should. Use it beside terminalStdin.
+func terminalStdout(t *testing.T) {
+	t.Helper()
+
+	original := interactiveStdout
+	interactiveStdout = func(io.Writer) bool { return true }
+	t.Cleanup(func() { interactiveStdout = original })
+}
+
 func terminalStdin(t *testing.T) {
 	t.Helper()
 

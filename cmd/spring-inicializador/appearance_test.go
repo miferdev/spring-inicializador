@@ -79,6 +79,7 @@ func TestInteractiveRunPassesTheAppearance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := newFakeInitializr(t)
 			terminalStdin(t)
+			terminalStdout(t)
 			if tc.setEnv {
 				t.Setenv("NO_COLOR", tc.noColor)
 			} else {
