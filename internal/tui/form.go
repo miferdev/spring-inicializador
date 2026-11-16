@@ -473,7 +473,9 @@ func newForm(sections []section, values map[Key]*string, theme Theme) (*huh.Form
 			}
 			widgets = append(widgets, widget)
 		}
-		groups = append(groups, huh.NewGroup(widgets...).Title(section.title))
+		// The help bar is the form's own (formModel.hintLine): huh spells its bar with
+		// glyphs its API cannot change, and ASCII is the default here.
+		groups = append(groups, huh.NewGroup(widgets...).Title(section.title).WithShowHelp(false))
 	}
 
 	form := huh.NewForm(groups...).WithTheme(theme.huhForm())

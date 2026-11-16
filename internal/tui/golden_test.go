@@ -119,59 +119,27 @@ func TestGoldenFormSections(t *testing.T) {
 				section := h.model.project.sections[tc.section]
 				h.walkTo(section.fields[0].key)
 
-				compareFormGolden(
-					t,
-					filepath.Join("testdata", "form-"+size.name+"-"+tc.name+".golden"),
-					h.model.View(),
-					sectionHint(section),
-				)
+				compareGolden(t, filepath.Join("testdata", "form-"+size.name+"-"+tc.name+".golden"), h.model.View(), Default().Border)
 			})
 		}
 	}
 }
 
-// The hint bar huh draws under a section, spelled out because two things depend on
-// it: the golden pins it byte for byte, and US7.3 requires it to stay readable at 80
-// columns. A section of text rows shows the single binding an input has; a section
-// of selects shows the arrows, the filter and the step back.
+// The form draws its own hint bar, in ASCII, because huh spells its keys with
+// glyphs its API cannot change (↑ ↓ •) and ASCII is the default here. There are two
+// lines: the keys a text row answers and the keys a select row answers.
 const (
-	inputHint  = "enter next"
-	selectHint = "↑ up • ↓ down • / filter • shift+tab back • enter select"
+	textHint   = "enter next  esc back  tab next field"
+	selectHint = "up/down move  / filter  enter next  esc back"
 )
 
-// sectionHint is the hint bar a section's rows produce.
+// sectionHint is the hint bar a section's rows produce. Sections are homogeneous —
+// text rows in Identity, selects in Build and Versions — so the first row decides.
 func sectionHint(section section) string {
 	if len(section.fields) > 0 && section.fields[0].kind == fieldText {
-		return inputHint
+		return textHint
 	}
 	return selectHint
-}
-
-// compareFormGolden compares a project-form frame to its golden. A form frame is
-// the only screen this project does not draw end to end: huh draws the hint bar and
-// spells it with its own glyphs ("↑ up • ↓ down"), which no public option of the
-// library can change. So the ASCII rule covers every line the form draws, and the
-// hint bar is asserted exactly instead — the golden still holds it byte for byte,
-// so a glyph that drifts still fails the test (US7.3).
-func compareFormGolden(t *testing.T, path, frame, hint string) {
-	t.Helper()
-
-	lines := strings.Split(strings.TrimRight(frame, "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("%s: the frame has %d lines, want fields and a hint bar", path, len(lines))
-	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != hint {
-		t.Errorf("%s: hint bar = %q, want %q", path, got, hint)
-	}
-
-	want := goldenFrame(frame)
-	body := want
-	if split := strings.LastIndex(strings.TrimRight(want, "\n"), "\n"); split >= 0 {
-		body = want[:split]
-	}
-	assertASCIIFrame(t, path, body, nil)
-
-	writeOrCompareGolden(t, path, want)
 }
 
 // compareGolden compares a frame to its golden file, or rewrites the file when the

@@ -135,7 +135,7 @@ func (m model) View() string {
 	if m.form.Form == nil {
 		return ""
 	}
-	return m.form.View()
+	return m.form.frame(m.width)
 }
 
 // updateProject delegates to the form and watches the two states the form can
@@ -231,10 +231,16 @@ func (m *model) showProjectForm() {
 
 // newFormModel wraps the project form in the Bubble Tea model the root drives.
 func newFormModel(project *projectForm) formModel {
+	kinds := make(map[Key]fieldKind, len(project.fields))
+	for _, f := range project.fields {
+		kinds[f.key] = f.kind
+	}
+
 	return formModel{
 		Form:         project.form,
 		state:        &project.state,
 		packageInput: project.packageInput,
 		firstKey:     project.firstKey,
+		kinds:        kinds,
 	}
 }

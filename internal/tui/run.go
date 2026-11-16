@@ -22,6 +22,10 @@ type formModel struct {
 	state        *formState
 	packageInput *huh.Input
 	firstKey     Key
+
+	// kinds is the widget kind of every row, so the hint line can speak about the
+	// row the form is on without walking the sections on every frame.
+	kinds map[Key]fieldKind
 }
 
 // Update delegates to the form and then lets the state react to the new values.
@@ -63,6 +67,46 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
+}
+
+// The hint lines the form draws under its rows, in ASCII. huh's own help bar spells
+// its keys with glyphs no public option of the library changes (↑ ↓ •), and ASCII is
+// the default here, so the bar is hidden in newForm and the form speaks for itself.
+//
+// "enter next" is honest on every row: inside a section it moves to the next field,
+// and on a section's last row it opens the next section — which on the last section
+// is the dependency pane. "esc back" is the step this model adds on top of huh's
+// keymap, and "tab next field" is huh's other key for the same step.
+const (
+	formHintText   = "enter next  esc back  tab next field"
+	formHintSelect = "up/down move  / filter  enter next  esc back"
+)
+
+// hintLine is the line under the rows: the keys that work on the row the form is
+// on. A text row has no up/down and no filter, so it gets the other line. Like every
+// line a screen composes, it is trimmed to the terminal width instead of wrapping.
+func (m formModel) hintLine(width int) string {
+	hint := formHintText
+	if focused := m.Form.GetFocusedField(); focused != nil && m.kinds[Key(focused.GetKey())] == fieldSelect {
+		hint = formHintSelect
+	}
+	return fitLine(hint, width)
+}
+
+// frame is the whole project screen: huh's rows and the hint line under them. huh's
+// own help bar is hidden, so this line is the only place the keys are named.
+func (m formModel) frame(width int) string {
+	if m.Form == nil {
+		return ""
+	}
+
+	view := m.Form.View()
+	if view == "" {
+		// A finished or aborted form renders nothing, and nothing is what the screen
+		// should be: a hint for keys that no longer work would be a lie.
+		return ""
+	}
+	return view + "\n" + m.hintLine(width)
 }
 
 // atFirstField reports whether the focused row is the first one the form asks,

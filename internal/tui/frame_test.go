@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -239,6 +240,39 @@ func TestSectionFramesStayWithinTheTerminal(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFormHintIsAsciiAndClipped: the bar is the project's own line, so it has to be
+// ASCII (huh's bar was not), one line, and trimmed like every line the screens
+// compose themselves instead of wrapping the frame onto a second row.
+func TestFormHintIsAsciiAndClipped(t *testing.T) {
+	h := newSizedHarness(t, 80, 24)
+
+	for _, section := range h.model.project.sections {
+		h.walkTo(section.fields[0].key)
+		hint := h.model.form.hintLine(80)
+
+		if want := sectionHint(section); hint != want {
+			t.Errorf("%s hint = %q, want %q", section.name, hint, want)
+		}
+		for _, r := range hint {
+			if r > unicode.MaxASCII {
+				t.Errorf("%s hint has %q, which is not ASCII", section.name, r)
+			}
+		}
+		if width := len([]rune(hint)); width > 80 {
+			t.Errorf("%s hint is %d columns wide, want at most 80", section.name, width)
+		}
+
+		// A narrower terminal than the line needs: trimmed, never wrapped, and no
+		// width at all (before the first size message) keeps the whole line.
+		if narrow := h.model.form.hintLine(20); len([]rune(narrow)) > 20 {
+			t.Errorf("%s hint at 20 columns = %q, wider than the terminal", section.name, narrow)
+		}
+		if full := h.model.form.hintLine(0); full != hint {
+			t.Errorf("%s hint with no width = %q, want the whole line %q", section.name, full, hint)
+		}
 	}
 }
 
