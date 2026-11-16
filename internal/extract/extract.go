@@ -52,6 +52,18 @@ type Result struct {
 	Executable []string
 }
 
+// Occupied reports whether destDir exists and holds anything, which is the only
+// situation Extract refuses without force. The command line asks the same question
+// before fetching, so a run that declines destructive actions refuses without
+// spending a request (US6.5).
+func Occupied(destDir string) (bool, error) {
+	exists, empty, err := dirState(destDir)
+	if err != nil {
+		return false, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
+	}
+	return exists && !empty, nil
+}
+
 // Extract unpacks data into destDir, preserving the archive's top-level
 // directory (the server sends `demo/...`, so `--output .` yields `./demo`) and
 // each entry's stored permission bits, including the executable bit on mvnw and

@@ -63,14 +63,21 @@ Flags:
   --server URL       Initializr base URL for metadata and generation
                      (default "https://start.spring.io")
   --dry-run          Print the resolved options and exit without generating
-  --yes              Run without prompting, taking defaults
+  --yes              Answer every prompt with its default; never destructive
+  --no               Answer every prompt with "no": never replace an existing
+                     output directory, even with --force
   --fancy            Use Unicode borders and glyphs instead of ASCII
   --no-color         Strip every style; NO_COLOR in the environment does the same
   --version          Print the version and exit
   --help, -h         Print this help and exit
 
-On a terminal, without --yes, it asks for every project option a flag did not
-provide. Anything else stays non-interactive.
+On a terminal, without --yes or --no, it asks for every project option a flag did
+not provide. Anything else stays non-interactive.
+
+--yes and --no cannot be combined. --yes takes every default without asking; --no
+takes them too and also declines the one destructive action this tool has,
+replacing a non-empty --output directory. --no wins over --force, because
+declining the destructive action is the stronger statement.
 
 The archive is extracted into <output>/<artifact-id>.
 
@@ -101,6 +108,7 @@ type commandLine struct {
 	server      string
 	dryRun      bool
 	yes         bool
+	no          bool
 	fancy       bool
 	noColor     bool
 	version     bool
@@ -129,7 +137,8 @@ func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags.StringVar(&cmd.bootVersion, "boot-version", "", "Spring Boot version, e.g. 4.1.2.RELEASE (default: server default)")
 	flags.StringVar(&cmd.server, "server", defaultServer, "Initializr base URL for metadata and generation")
 	flags.BoolVar(&cmd.dryRun, "dry-run", false, "print the resolved options and exit without generating")
-	flags.BoolVar(&cmd.yes, "yes", false, "run without prompting, taking defaults")
+	flags.BoolVar(&cmd.yes, "yes", false, "answer every prompt with its default; never destructive")
+	flags.BoolVar(&cmd.no, "no", false, "answer every prompt with no: never replace an existing output directory, even with --force")
 	flags.BoolVar(&cmd.fancy, "fancy", false, "use Unicode borders and glyphs instead of ASCII")
 	flags.BoolVar(&cmd.noColor, "no-color", false, "strip every style; NO_COLOR in the environment does the same")
 	flags.BoolVar(&cmd.version, "version", false, "print the version and exit")
@@ -317,6 +326,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	// --yes and --no answer every question in opposite directions, so a run that
+	// carries both is a usage error rather than whichever flag was read last.
+	if cmd.yes && cmd.no {
+		fmt.Fprintln(stderr, "spring-inicializador: --yes and --no cannot be combined")
+		fmt.Fprint(stderr, usageText)
+		return exitUsage
+	}
+
 	passed := passedFlags(flags)
 
 	// The tool's own vocabulary is checked before any request: a typo must not
@@ -332,6 +349,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
 		return exitUsage
+	}
+
+	// --no declines the only destructive action this tool has before a request is
+	// spent: an occupied --output would be refused at extraction anyway, and the
+	// refusal is cheaper and clearer here, with nothing to undo.
+	if err := refuseDestructive(cmd); err != nil {
+		return reportError(stderr, err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -366,10 +390,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	provided := providedByFlags(cmd, passed)
 
 	// On a terminal, with a terminal output, the form asks for exactly what the
-	// flags did not answer. --yes, a redirected stdin and a piped stdout all keep a
-	// run scripted: a wizard painting into a pipe would destroy the log, and there
-	// is nobody there to answer it anyway.
-	if !cmd.yes && interactiveStdin(os.Stdin) && interactiveStdout(stdout) && tui.Asks(c, provided) {
+	// flags did not answer. --yes, --no, a redirected stdin and a piped stdout all
+	// keep a run scripted: a wizard painting into a pipe would destroy the log, and
+	// a run that answers every prompt with its default or with "no" has nothing left
+	// to ask.
+	if !cmd.yes && !cmd.no && interactiveStdin(os.Stdin) && interactiveStdout(stdout) && tui.Asks(c, provided) {
 		// --deps answers the dependency screen the way the project flags answer
 		// its rows: the ids arrive already checked, and the screen decides.
 		// --output is where the review says the project will land; it is not part of
@@ -424,6 +449,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Next: cd %s && %s\n", destination, runCommand(opts))
 	return exitOK
+}
+
+// refuseDestructive declines the only destructive action this tool has — replacing
+// a non-empty --output directory — when the run asked for every destructive action
+// to be declined. It answers before the metadata request, so a refusal costs
+// nothing and can never write anything. A dry run is exempt: it writes nothing
+// whether or not a destination exists.
+func refuseDestructive(cmd *commandLine) error {
+	if !cmd.no || cmd.dryRun {
+		return nil
+	}
+
+	occupied, err := extract.Occupied(cmd.output)
+	if err != nil {
+		return err
+	}
+	if !occupied {
+		return nil
+	}
+
+	// --no outranks --force: a permission cannot undo a prohibition, and the
+	// refusal is loud (exit 1 naming the flag), so a script that wants the
+	// replacement knows exactly which flag to drop.
+	return fmt.Errorf("--no refuses to replace %s; remove --no and pass --force to overwrite", cmd.output)
 }
 
 // resolve starts from the metadata defaults and applies every value the command
