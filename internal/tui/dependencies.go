@@ -309,8 +309,18 @@ func (d dependenciesModel) resize(width, height int) dependenciesModel {
 // reaches the component, because the share depends on the level as well as on the
 // terminal: the category root never splits (US5.1).
 func (d dependenciesModel) applySize() dependenciesModel {
-	d.list.SetSize(d.listWidth(), dependenciesListHeight(d.height))
+	d.list.SetSize(d.listWidth(), d.listHeight())
 	return d
+}
+
+// listHeight is the rows the list gets at the current level and width. The middle
+// band reserves one row of the window for the focused row's description, so the
+// line never pushes the frame past the terminal (US5.2).
+func (d dependenciesModel) listHeight() int {
+	if d.showInlineDescription() {
+		return max(1, dependenciesListHeight(d.height)-1)
+	}
+	return dependenciesListHeight(d.height)
 }
 
 // dependenciesListHeight is the rows the list component gets: the terminal minus
@@ -463,11 +473,21 @@ func (d dependenciesModel) view() string {
 // short side never adds trailing blanks.
 func (d dependenciesModel) body() []string {
 	listLines := strings.Split(trimBlankTail(d.list.View()), "\n")
-	if !d.showDetail() {
+
+	switch {
+	case d.showDetail():
+		return d.splitBody(listLines)
+	case d.showInlineDescription():
+		return d.inlineBody(listLines)
+	default:
 		return listLines
 	}
+}
 
-	detail := d.detailLines(detailWidth, dependenciesListHeight(d.height))
+// splitBody puts the detail region beside the list (US5.1). The list side is
+// padded to the separator column, so the two regions line up row by row.
+func (d dependenciesModel) splitBody(listLines []string) []string {
+	detail := d.detailLines(detailWidth, d.listHeight())
 	rows := max(len(listLines), len(detail))
 	separator := d.theme.Border.Left
 

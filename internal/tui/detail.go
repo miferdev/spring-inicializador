@@ -16,6 +16,47 @@ import (
 // detailGuides is how many guide titles the region shows, in the metadata's order.
 const detailGuides = 3
 
+// inlineMinWidth opens the band where the focused row carries its description
+// under it instead of beside it (US5.2). Above detailMinWidth the detail region
+// returns; below this width the list has the frame to itself.
+const inlineMinWidth = 100
+
+// inlineIndent puts the description under the row's name rather than under its
+// markers, so the two read as one block.
+const inlineIndent = "    "
+
+// showInlineDescription reports whether the focused row carries its one-line
+// description: the middle band, at a level whose rows are dependencies.
+func (d dependenciesModel) showInlineDescription() bool {
+	return d.width >= inlineMinWidth && d.width < detailMinWidth && d.level != levelCategories
+}
+
+// inlineBody inserts the focused row's description directly under it, muted and cut
+// to the terminal width: one line, never more, and one row of the window is
+// reserved for it by listHeight (US5.2).
+func (d dependenciesModel) inlineBody(listLines []string) []string {
+	dependency, ok := d.focusedDependency()
+	if !ok || strings.TrimSpace(dependency.Description) == "" {
+		return listLines
+	}
+
+	// The focused row is one of the page's rows, so it is where the component's
+	// own index says it is.
+	start, _ := d.list.Paginator.GetSliceBounds(len(d.list.VisibleItems()))
+	offset := d.list.Index() - start
+	if offset < 0 || offset >= len(listLines) {
+		return listLines
+	}
+
+	description := d.theme.Muted.Render(fitLine(inlineIndent+dependency.Description, d.width))
+
+	lines := make([]string, 0, len(listLines)+1)
+	lines = append(lines, listLines[:offset+1]...)
+	lines = append(lines, description)
+	lines = append(lines, listLines[offset+1:]...)
+	return lines
+}
+
 // focusedDependency is the dependency row under the cursor. It is false at the
 // category root, where the rows are categories, and when nothing matches, where
 // there is nothing to describe.

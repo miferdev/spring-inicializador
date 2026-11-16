@@ -1,0 +1,21 @@
+< Web (18)  23 categories  206 dependencies
+> [ ] Spring Web Web                                                            | Spring Web
+  [ ] Spring Reactive Web Web                                                   | Web
+  [ ] HTTP Client Web                                                           |
+  [ ] Reactive HTTP Client Web                                                  | Build web, including RESTful,
+  [ ] Spring for GraphQL Web                                                    | applications using Spring MVC. Uses
+  [ ] Rest Repositories Web                                                     | Apache Tomcat as the default embedded
+  [ ] Spring Session for Spring Data MongoDB Web                                | container.
+  [ ] Spring Session for Spring Data Redis Web                                  |
+  [ ] Spring Session for Hazelcast Web                                          | Guides
+  [ ] Spring Session for JDBC Web                                               |  - Building a RESTful Web Service
+  [ ] Rest Repositories HAL Explorer Web                                        |  - Serving Web Content with Spring MVC
+  [ ] Spring HATEOAS Web                                                        |  - Building REST services with Spring
+  [ ] Spring Web Services Web                                                   |
+  [ ] Jersey Web                                                                |
+  [ ] Vaadin Web                                                                |
+  [ ] Netflix DGS Web                                                           |
+  [ ] htmx Web                                                                  |
+  [ ] SpringDoc OpenAPI Web                                                     |
+18 dependencies  0 selected
+enter/space pick  / find  esc back  ctrl+d finish
