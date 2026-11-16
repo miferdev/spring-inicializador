@@ -25,11 +25,12 @@ func (d dependenciesModel) countRenders(counter *int) dependenciesModel {
 	return d
 }
 
-// dependencyScreen builds the screen at a terminal size, which is the size these
-// frames are measured at.
+// dependencyScreen builds the screen at a terminal size, on the level that holds
+// the whole catalog: the frame budget is about the 206 dependency rows, not the
+// 23 category rows the screen opens on (US4.1).
 func dependencyScreen(t *testing.T, cat *catalog.Catalog, width, height int) dependenciesModel {
 	t.Helper()
-	return newDependenciesModel(cat, nil, width, height, Default())
+	return newDependenciesModel(cat, nil, width, height, Default()).show(levelSearch)
 }
 
 // renderedRows renders one frame and reports how many rows the delegate wrote.
@@ -144,12 +145,19 @@ func TestWindowStaysBoundedForTheAICategory(t *testing.T) {
 	}
 
 	screen := dependencyScreen(t, cat, 80, 24)
-	screen = drive(t, screen, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ai")})
+	screen = drive(t, screen, keyRunes("/"))
+	screen = drive(t, screen, keyRunes("ai"))
 	screen = drive(t, screen, tea.KeyMsg{Type: tea.KeyEnter})
 
-	// The premise: the filter really shows the whole AI category, so the frame
-	// below is the 50-row case and not a smaller accident.
+	// The premise: the query is really applied and really shows the whole AI
+	// category, so the frame below is the 50-row case and not a smaller accident.
+	if !screen.list.IsFiltered() {
+		t.Fatal("the ai query was not applied")
+	}
 	visible := screen.list.VisibleItems()
+	if len(visible) >= len(cat.Dependencies) {
+		t.Fatalf("filter ai shows all %d rows, so it is not filtering", len(visible))
+	}
 	if len(visible) < len(ai) {
 		t.Fatalf("filter ai shows %d rows, want at least the %d AI rows", len(visible), len(ai))
 	}

@@ -24,24 +24,20 @@ func spaceKey() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 }
 
-// positionOf is the catalog position of a dependency id, or -1.
-func positionOf(cat *catalog.Catalog, id string) int {
-	for i, dependency := range cat.Dependencies {
-		if dependency.ID == id {
-			return i
-		}
-	}
-	return -1
-}
-
-// focusRow puts the cursor on a dependency by pressing up and down, the way a
-// person does, and fails when the row is not there.
-func (h *harness) focusRow(id string) {
+// focusDependency puts the cursor on a dependency the screen is showing, pressing
+// up and down the way a person does.
+func (h *harness) focusDependency(id string) {
 	h.t.Helper()
 
-	want := positionOf(h.cat, id)
+	want := -1
+	for i, item := range h.model.deps.list.VisibleItems() {
+		if row, ok := item.(dependencyItem); ok && row.dependency.ID == id {
+			want = i
+			break
+		}
+	}
 	if want < 0 {
-		h.t.Fatalf("the fixture has no dependency %q", id)
+		h.t.Fatalf("the screen is not showing the dependency %q", id)
 	}
 
 	have := h.model.deps.list.Index()
@@ -57,6 +53,60 @@ func (h *harness) focusRow(id string) {
 	}
 }
 
+// openCategory moves the root cursor to a category and enters it.
+func (h *harness) openCategory(name string) {
+	h.t.Helper()
+
+	if h.model.deps.level != levelCategories {
+		h.t.Fatalf("level = %v, want the category root before opening %q", h.model.deps.level, name)
+	}
+
+	want := -1
+	for i, item := range h.model.deps.list.Items() {
+		if row, ok := item.(categoryItem); ok && row.category.Name == name {
+			want = i
+			break
+		}
+	}
+	if want < 0 {
+		h.t.Fatalf("the root is not showing the category %q", name)
+	}
+
+	have := h.model.deps.list.Index()
+	for ; have < want; have++ {
+		h.press(tea.KeyDown)
+	}
+	for ; have > want; have-- {
+		h.press(tea.KeyUp)
+	}
+	h.press(tea.KeyEnter)
+
+	if h.model.deps.level != levelDependencies || h.model.deps.open != name {
+		h.t.Fatalf("enter landed on level %v open %q, want %q", h.model.deps.level, h.model.deps.open, name)
+	}
+}
+
+// backToRoot leaves the open category.
+func (h *harness) backToRoot() {
+	h.t.Helper()
+
+	h.press(tea.KeyEsc)
+	if h.model.deps.level != levelCategories {
+		h.t.Fatalf("level = %v after esc, want the category root", h.model.deps.level)
+	}
+}
+
+// toggleDependency opens the dependency's category, checks it, and returns to the
+// root: how a person picks rows that live in different categories.
+func (h *harness) toggleDependency(id string) {
+	h.t.Helper()
+
+	h.openCategory(mustDependency(h.t, h.cat, id).Category)
+	h.focusDependency(id)
+	h.send(spaceKey())
+	h.backToRoot()
+}
+
 // TestSpaceTogglesTheFocusedRowAndStays is the story's core: space flips the row
 // under the cursor and the cursor does not move, because the user is picking
 // several rows in a row.
@@ -68,7 +118,8 @@ func TestSpaceTogglesTheFocusedRowAndStays(t *testing.T) {
 		t.Fatalf("footer = %q, want it to start at 0 selected", got)
 	}
 
-	h.focusRow("web")
+	h.openCategory("Web")
+	h.focusDependency("web")
 	row := h.model.deps.list.Index()
 
 	h.send(spaceKey())
@@ -105,27 +156,31 @@ func TestFooterCountsSelections(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	if got, want := h.model.deps.footer(), "206 dependencies  0 selected"; got != want {
+	// The root states its totals in the header, so the footer starts with the
+	// selection and ends with the key that finishes.
+	if got, want := h.model.deps.footer(), "0 selected  ctrl+d finish"; got != want {
 		t.Fatalf("footer = %q, want %q", got, want)
 	}
 
-	h.focusRow("web")
-	h.send(spaceKey())
-	h.focusRow("data-jpa")
-	h.send(spaceKey())
+	h.toggleDependency("web")
+	h.toggleDependency("data-jpa")
 
 	// data-jpa was checked last but the request, and therefore the footer, is in
 	// catalog order.
-	if got, want := h.model.deps.footer(), "206 dependencies  2 selected: web, data-jpa"; got != want {
+	if got, want := h.model.deps.footer(), "2 selected: web, data-jpa  ctrl+d finish"; got != want {
 		t.Errorf("footer = %q, want %q", got, want)
 	}
 
-	// A search does not hide the selection.
-	h.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	// A search does not hide the selection, and it says what it is showing.
+	h.send(keyRunes("/"))
 	h.typeText("sql")
 	h.press(tea.KeyEnter)
-	if got := h.model.deps.footer(); !strings.Contains(got, "2 selected: web, data-jpa") {
-		t.Errorf("footer = %q while searching, want the selection kept", got)
+	footer := h.model.deps.footer()
+	if !strings.Contains(footer, "2 selected: web, data-jpa") {
+		t.Errorf("footer = %q while searching, want the selection kept", footer)
+	}
+	if !strings.HasSuffix(footer, dependenciesFinishHint) {
+		t.Errorf("footer = %q while searching, want the finish hint at the end", footer)
 	}
 }
 
@@ -142,11 +197,17 @@ func TestFooterTruncatesTheIDsButNotTheCount(t *testing.T) {
 	screen := newDependenciesModel(cat, ids, 60, 20, Default())
 	footer := screen.footer()
 
-	if !strings.Contains(footer, "20 selected:") {
-		t.Errorf("footer = %q, want the exact count even when the ids are cut", footer)
+	// The finish hint is reserved, so it survives the cut.
+	if !strings.HasSuffix(footer, footerGap+dependenciesFinishHint) {
+		t.Errorf("footer = %q, want the finish hint kept at the end", footer)
 	}
-	if !strings.HasSuffix(footer, "...") {
-		t.Errorf("footer = %q, want the cut marked with ...", footer)
+	body := strings.TrimSuffix(footer, footerGap+dependenciesFinishHint)
+
+	if !strings.Contains(body, "20 selected:") {
+		t.Errorf("footer = %q, want the exact count even when the ids are cut", body)
+	}
+	if !strings.HasSuffix(body, "...") {
+		t.Errorf("footer = %q, want the cut marked with ...", body)
 	}
 	if width := ansi.StringWidth(footer); width > 60 {
 		t.Errorf("footer is %d cells wide, want at most 60: %q", width, footer)
@@ -160,9 +221,9 @@ func TestFooterTruncatesTheIDsButNotTheCount(t *testing.T) {
 
 	// The ids are a catalog-order prefix of the selection: nothing is reordered
 	// and nothing is invented to fill the line.
-	parts := strings.SplitN(footer, "20 selected: ", 2)
+	parts := strings.SplitN(body, "20 selected: ", 2)
 	if len(parts) != 2 {
-		t.Fatalf("footer = %q, want the count followed by the ids", footer)
+		t.Fatalf("footer = %q, want the count followed by the ids", body)
 	}
 	shown := strings.Split(strings.TrimSuffix(parts[1], ", ..."), ", ")
 	for i, id := range shown {
@@ -194,7 +255,7 @@ func TestSelectionSurvivesFiltering(t *testing.T) {
 		t.Fatalf("checked = %v, want postgresql", got)
 	}
 
-	// Clearing the query keeps the set.
+	// Leaving the search keeps the set.
 	h.press(tea.KeyEsc)
 	if got := h.model.deps.chosen(); !reflect.DeepEqual(got, []string{"postgresql"}) {
 		t.Fatalf("checked = %v after clearing the query, want postgresql", got)
@@ -215,26 +276,26 @@ func TestSelectionSurvivesFiltering(t *testing.T) {
 	}
 }
 
-// TestEnterReturnsTheCheckedSetInCatalogOrder proves the request two identical
+// TestFinishReturnsTheCheckedSetInCatalogOrder proves the request two identical
 // selections produce is identical: ids leave in catalog order, not in the order
-// they were checked.
-func TestEnterReturnsTheCheckedSetInCatalogOrder(t *testing.T) {
+// they were checked, and ctrl+d is what hands them over (US4.1 moved finishing
+// off enter, which now opens categories).
+func TestFinishReturnsTheCheckedSetInCatalogOrder(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	// h2 is #50 in the catalog, web is #7 and data-jpa is #41.
+	// Three categories, checked in an order the catalog does not use.
 	for _, id := range []string{"h2", "web", "data-jpa"} {
-		h.focusRow(id)
-		h.send(spaceKey())
+		h.toggleDependency(id)
 	}
 
-	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	msgs := commandMessages(cmd)
 	if len(msgs) == 0 {
-		t.Fatal("enter on the dependency screen produced no message; the run would hang")
+		t.Fatal("ctrl+d on the dependency screen produced no message; the run would hang")
 	}
 	if _, ok := msgs[0].(tea.QuitMsg); !ok {
-		t.Fatalf("enter produced %T, want tea.QuitMsg", msgs[0])
+		t.Fatalf("ctrl+d produced %T, want tea.QuitMsg", msgs[0])
 	}
 
 	got := h.model.finished(h.cat).Deps
@@ -286,16 +347,19 @@ func TestSelectionSurvivesTheFormRoundTrip(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	h.focusRow("web")
+	h.openCategory("Web")
+	h.focusDependency("web")
 	h.send(spaceKey())
 	before := h.model.deps.chosen()
 
-	h.press(tea.KeyEsc) // no query: back to the form
+	h.backToRoot()
+	h.press(tea.KeyEsc) // the root has nowhere left to go but the form
 	if h.model.screen != screenProject {
 		t.Fatalf("screen = %v after esc, want the project form", h.model.screen)
 	}
 
 	h.openDependencies()
+	h.openCategory("Web")
 	if got := h.model.deps.chosen(); !reflect.DeepEqual(got, before) {
 		t.Errorf("checked = %v after the round trip, want %v", got, before)
 	}

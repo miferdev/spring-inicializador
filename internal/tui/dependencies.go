@@ -1,14 +1,16 @@
 package tui
 
-// Screen 2 of the wizard (docs/ui.md): the flat, searchable dependency list over
-// the catalog's 206 rows. It is built on the bubbles list component, which owns
-// the visible window, so this file only describes a row, the search, the checked
-// set and the keys the screen must decide for itself.
+// Screen 2 of the wizard (docs/ui.md): the dependency panel, one list component
+// with two levels (D4). The root shows the categories, `enter` opens one, `esc`
+// backs out, and `/` flattens the whole catalog from either level (D5). It is
+// built on the bubbles list component, which owns the visible window, so this
+// file only describes a level, a row, the checked set and the keys the screen
+// must decide for itself.
 //
 // The screen owns one value: the checked set (US3.2). It is a set of ids, not a
-// property of the visible rows, so filtering can neither drop nor duplicate a
-// selection. US3.3 measures the window and VS4 adds the category level above
-// this list.
+// property of the visible rows, so filtering or changing level can neither drop
+// nor duplicate a selection. The category rows live in categories.go, the search
+// ranking in rank.go and the window budget in frame_test.go.
 
 import (
 	"fmt"
@@ -44,6 +46,17 @@ type dependenciesModel struct {
 	// lets rankDependencies answer with positions instead of values.
 	dependencies []catalog.Dependency
 
+	// categories is the root's rows, already in display order (D7). It is a view
+	// of the catalog, which keeps the server's order.
+	categories []categoryItem
+
+	// level is what the screen shows, and open names the category the
+	// dependencies level belongs to. searchFrom is the level a search started
+	// from, so leaving the search returns there instead of to the root.
+	level      dependencyLevel
+	open       string
+	searchFrom dependencyLevel
+
 	// selected is the checked set, keyed by dependency id. Nothing derives it
 	// from the visible rows, which is why a filter change cannot drop or
 	// duplicate a selection.
@@ -60,33 +73,33 @@ type dependenciesModel struct {
 	theme Theme
 }
 
-// newDependenciesModel builds the screen over the flat catalog. seeded carries
-// the ids the command line already answered (--deps), which arrive checked, so
-// that flag answers this screen the way the project flags answer form rows.
-// width and height are the terminal size; the footer takes one row of it.
+// newDependenciesModel builds the screen over the catalog, opening on the
+// category root. seeded carries the ids the command line already answered
+// (--deps), which arrive checked, so that flag answers this screen the way the
+// project flags answer form rows. width and height are the terminal size; the
+// header and the footer take one row each.
 func newDependenciesModel(cat *catalog.Catalog, seeded []string, width, height int, theme Theme) dependenciesModel {
 	var dependencies []catalog.Dependency
+	var categories []catalog.Category
 	if cat != nil {
 		dependencies = cat.Dependencies
-	}
-
-	items := make([]list.Item, 0, len(dependencies))
-	for _, dependency := range dependencies {
-		items = append(items, dependencyItem{dependency: dependency})
+		categories = cat.Categories
 	}
 
 	// The list hands the filter one target per row, in row order, and every rank
-	// we return is an index into that same slice. The rows are built from
+	// we return is an index into the flat catalog. The search rows are built from
 	// dependencies once, so the capture below stays aligned with the list for the
 	// life of the screen.
 	screen := dependenciesModel{
 		dependencies: dependencies,
+		categories:   categoryItems(rankCategories(categories)),
 		selected:     newSelection(seeded),
+		level:        levelCategories,
 		theme:        theme,
 	}
 
 	listWidth, listHeight := dependenciesListSize(width, height)
-	screen.list = list.New(items, screen.rowDelegate(), listWidth, listHeight)
+	screen.list = list.New(screen.categoryRows(), categoryDelegate{theme: theme}, listWidth, listHeight)
 	// The component's own chrome (title, status bar, pagination dots, help) is
 	// off: the dots are Unicode, the screen owns its one footer line, and the
 	// key hints belong to the root screen. Pagination still pages; only its
@@ -116,17 +129,153 @@ func (d dependenciesModel) rowDelegate() dependencyDelegate {
 	return dependencyDelegate{theme: d.theme, selected: d.selected, renders: d.renders}
 }
 
-// resize applies a terminal size, keeping the row the footer takes.
+// dependencyLevel is what the dependency screen shows. The set is closed: the
+// panel has two real levels (D4) and one way of looking at the whole catalog.
+type dependencyLevel int
+
+const (
+	// levelCategories is the root: every category, ordered by size (D7).
+	levelCategories dependencyLevel = iota
+
+	// levelDependencies is one open category: only its dependencies.
+	levelDependencies
+
+	// levelSearch is the whole catalog while a query is on screen. A search is a
+	// way of looking at the catalog, not a level of its own (D5).
+	levelSearch
+)
+
+// String names the level, so a test failure says where the screen was.
+func (l dependencyLevel) String() string {
+	switch l {
+	case levelCategories:
+		return "categories"
+	case levelDependencies:
+		return "dependencies"
+	case levelSearch:
+		return "search"
+	default:
+		return fmt.Sprintf("level(%d)", int(l))
+	}
+}
+
+// categoryItems turns the ordered categories into root rows.
+func categoryItems(categories []catalog.Category) []categoryItem {
+	items := make([]categoryItem, 0, len(categories))
+	for _, category := range categories {
+		items = append(items, categoryItem{category: category})
+	}
+	return items
+}
+
+// dependencyRows turns catalog values into list rows.
+func dependencyRows(dependencies []catalog.Dependency) []list.Item {
+	rows := make([]list.Item, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		rows = append(rows, dependencyItem{dependency: dependency})
+	}
+	return rows
+}
+
+// categoryRows is the root's item slice.
+func (d dependenciesModel) categoryRows() []list.Item {
+	rows := make([]list.Item, 0, len(d.categories))
+	for _, item := range d.categories {
+		rows = append(rows, item)
+	}
+	return rows
+}
+
+// openDependencies is the open category's dependencies, in catalog order.
+func (d dependenciesModel) openDependencies() []catalog.Dependency {
+	for _, item := range d.categories {
+		if item.category.Name != d.open {
+			continue
+		}
+
+		dependencies := make([]catalog.Dependency, 0, len(item.category.Dependencies))
+		for _, dependency := range item.category.Dependencies {
+			dependencies = append(dependencies, *dependency)
+		}
+		return dependencies
+	}
+	return nil
+}
+
+// rows is the item slice the current level shows. The list is one component: a
+// level change swaps its rows, never its identity.
+func (d dependenciesModel) rows() []list.Item {
+	switch d.level {
+	case levelSearch:
+		return dependencyRows(d.dependencies)
+	case levelDependencies:
+		return dependencyRows(d.openDependencies())
+	default:
+		return d.categoryRows()
+	}
+}
+
+// show returns the screen at level, with that level's rows and no query on them.
+// It is the only place the list's items and delegate are replaced, so a level
+// change cannot leave the rows of the old level behind, and the search ranker —
+// which indexes the flat catalog — can never run over category rows.
+func (d dependenciesModel) show(level dependencyLevel) dependenciesModel {
+	if level == levelDependencies && d.open == "" {
+		level = levelCategories
+	}
+	if level == levelSearch && d.level != levelSearch {
+		d.searchFrom = d.level
+	}
+	d.level = level
+
+	d.list.ResetFilter()
+	// A category usually holds fewer rows than the page that was showing, so the
+	// cursor starts over. US4.2 owns remembering where it should come back to.
+	d.list.ResetSelected()
+	if level == levelCategories {
+		d.list.SetDelegate(categoryDelegate{theme: d.theme})
+	} else {
+		d.list.SetDelegate(d.rowDelegate())
+	}
+	d.list.SetItems(d.rows())
+
+	return d
+}
+
+// openFocusedCategory drills into the category under the cursor.
+func (d dependenciesModel) openFocusedCategory() dependenciesModel {
+	item, ok := d.list.SelectedItem().(categoryItem)
+	if !ok {
+		return d
+	}
+	d.open = item.category.Name
+	return d.show(levelDependencies)
+}
+
+// startSearch shows the whole catalog: / means the same thing at every level,
+// because a scoped search would hide results the user cannot see they are
+// missing (D5).
+func (d dependenciesModel) startSearch() dependenciesModel {
+	return d.show(levelSearch)
+}
+
+// leaveSearch returns to the level the search started from, with no query on it.
+func (d dependenciesModel) leaveSearch() dependenciesModel {
+	return d.show(d.searchFrom)
+}
+
+// resize applies a terminal size, keeping the rows the header and the footer
+// take.
 func (d dependenciesModel) resize(width, height int) dependenciesModel {
 	d.list.SetSize(dependenciesListSize(width, height))
 	return d
 }
 
 // dependenciesListSize is the space the list component gets: the terminal minus
-// the footer row. The floor keeps the component's paginator arithmetic sane on a
-// terminal that reports almost nothing.
+// the header and the footer. The floor keeps the component's paginator
+// arithmetic sane on a terminal that reports almost nothing.
 func dependenciesListSize(width, height int) (int, int) {
-	return max(1, width), max(2, height) - 1
+	return max(1, width), max(3, height) - 2
 }
 
 // newSelection turns the ids the command line already answered into the checked
@@ -219,66 +368,67 @@ func (d dependenciesModel) chosen() []string {
 	return append(chosen, unknown...)
 }
 
-// view renders the list window and the one footer line this screen owns. The
-// component renders only the current page, which is the bounded window US3.3
-// measures; nothing here asks for the whole slice.
+// view renders the header, the window and the footer. The component renders only
+// the current page, which is the bounded window US3.3 measures; nothing here asks
+// for the whole slice.
 func (d dependenciesModel) view() string {
-	view := d.list.View()
-	footer := d.footer()
-	if footer == "" {
-		return view
-	}
-	return view + "\n" + d.theme.Muted.Render(footer)
+	return d.headerLine() + "\n" + d.list.View() + "\n" + d.theme.Muted.Render(d.footer())
 }
 
-// footer is the one line under the list: what the search found, and what is
-// checked. Both halves are ASCII and the line never wraps, whatever the terminal
-// width says.
+// headerLine is the line above the list: the totals this screen is a view of, in
+// both currencies the wizard counts in. US4.3 owns stating the scope of the level
+// beside them.
+func (d dependenciesModel) headerLine() string {
+	return categoryCount(len(d.categories)) + footerGap + dependencyCount(len(d.dependencies))
+}
+
+// dependenciesFinishHint is the key that leaves the screen with everything it has
+// picked. enter cannot do it any more: at the root it opens a category, and on a
+// dependency row it checks one. The footer always shows it, because a key nobody
+// can discover is not a key.
+const dependenciesFinishHint = "ctrl+d finish"
+
+// footer is the one line under the list: what the level shows, what is checked,
+// and the key that finishes. The result and the ids give way to the hint, so the
+// hint survives every truncation short of the absurd.
 func (d dependenciesModel) footer() string {
-	ids := d.chosen()
-	result := d.resultLine()
-	if result == "" && len(ids) == 0 {
-		// Nothing to report; the component already says "No dependencies."
-		return ""
-	}
-
-	prefix := result
-	if prefix != "" {
-		prefix += footerGap
-	}
-
 	width := d.list.Width()
-	line := prefix + selectionLine(ids, width-ansi.StringWidth(prefix))
+
+	line := d.resultLine()
+	if line != "" {
+		line += footerGap
+	}
+
+	room := width - ansi.StringWidth(line) - ansi.StringWidth(dependenciesFinishHint) - ansi.StringWidth(footerGap)
+	line += selectionLine(d.chosen(), room) + footerGap + dependenciesFinishHint
+
 	if width > 0 {
-		// The safety net for a pathological width: the count survives because it
-		// is at the front, and nothing here can overflow the terminal.
+		// The safety net for a pathological width: the ids are the first thing
+		// already shortened, and nothing here can overflow the terminal.
 		line = ansi.Truncate(line, width, "...")
 	}
 	return line
 }
 
-// footerGap separates the search half of the footer from the selection half.
+// footerGap separates the parts of the header and the footer.
 const footerGap = "  "
 
-// resultLine is the first half of the footer: the row count, or what the query
-// matched, or why the result is empty. It is empty only for an empty catalog,
-// which the component already explains.
+// resultLine is the first half of the footer: what the current level shows, or
+// what the query matched, or why nothing did. The root has no half of its own,
+// because the header already states the totals it would repeat.
 func (d dependenciesModel) resultLine() string {
-	total := len(d.dependencies)
-	if total == 0 {
-		return ""
-	}
-
 	query := strings.TrimSpace(d.list.FilterValue())
 	visible := len(d.list.VisibleItems())
 
 	switch {
-	case query == "":
-		return dependencyCount(total)
-	case visible == 0:
+	case query != "" && visible == 0:
 		return fmt.Sprintf("No dependency matches %q; esc clears the search.", query)
+	case query != "":
+		return fmt.Sprintf("Showing %d of %d for %q", visible, len(d.dependencies), query)
+	case d.level == levelCategories:
+		return ""
 	default:
-		return fmt.Sprintf("Showing %d of %d for %q", visible, total, query)
+		return dependencyCount(visible)
 	}
 }
 
@@ -351,28 +501,39 @@ const (
 
 // update handles one message and reports what the root must do next. The keys
 // this screen decides are the ones the component cannot know: esc is level
-// aware, space checks the focused row, and enter finishes the run. docs/ui.md's
-// keybinding table still says enter toggles, while the screen footer in the same
-// file says "enter done"; the footer and VS3's proof both mean done, so that is
-// what enter does (US3.2).
+// aware, enter opens a category or checks a dependency, ctrl+d finishes, and /
+// always means the whole catalog.
+//
+// ctrl+d replaced VS3's enter as the finish key, because enter now has a level to
+// open; the footer advertises it. enter on a dependency row checks it, the same
+// as space, so docs/ui.md's "enter toggles" holds at the level it describes.
 func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, dependencyAction) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.Type {
+		case tea.KeyCtrlC:
+			return d, tea.Interrupt, actionStay
+
+		case tea.KeyCtrlD:
+			return d, nil, actionFinish
+
 		case tea.KeyEsc:
-			// A query on screen is what esc is for here: clearing it keeps the
-			// list where the user left it (docs/ui.md). Only an empty query goes
-			// back to the form.
-			if d.querying() {
-				d.list.ResetFilter()
-				return d, nil, actionStay
+			switch {
+			case d.querying():
+				// Clearing the query leaves the search, and a search never
+				// replaces the level it was started from.
+				return d.leaveSearch(), nil, actionStay
+			case d.level == levelDependencies:
+				return d.show(levelCategories), nil, actionStay
+			case d.level == levelSearch:
+				return d.leaveSearch(), nil, actionStay
+			default:
+				return d, nil, actionBack
 			}
-			return d, nil, actionBack
 
 		case tea.KeySpace:
-			if d.list.SettingFilter() {
-				// While the query is being typed a space is a character, not a
-				// toggle: the key belongs to the filter until the list is
-				// browsing again.
+			if d.list.SettingFilter() || d.level == levelCategories {
+				// A space is a character while the query is being typed, and a
+				// category is not something that can be checked.
 				break
 			}
 			return d.toggleFocused(), nil, actionStay
@@ -386,10 +547,18 @@ func (d dependenciesModel) update(msg tea.Msg) (dependenciesModel, tea.Cmd, depe
 				}
 				break // the component applies the filter
 			}
-			return d, nil, actionFinish
+			if d.level == levelCategories {
+				return d.openFocusedCategory(), nil, actionStay
+			}
+			return d.toggleFocused(), nil, actionStay
 
-		case tea.KeyCtrlC:
-			return d, tea.Interrupt, actionStay
+		case tea.KeyRunes:
+			if len(key.Runes) == 1 && key.Runes[0] == '/' && !d.list.SettingFilter() && d.level != levelSearch {
+				// Switch before the component starts its filter: it must filter
+				// the whole catalog, never the rows of the level / was pressed on
+				// (D5).
+				d = d.startSearch()
+			}
 		}
 	}
 

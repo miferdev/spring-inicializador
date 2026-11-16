@@ -35,12 +35,14 @@ func found(ranked []catalog.Dependency, id string) int {
 	return -1
 }
 
-// TestDependencyListIsBuiltFromTheCatalog proves the screen is the parsed
+// TestDependencyListIsBuiltFromTheCatalog proves the flat list is the parsed
 // fixture, all of it, and that a row renders the dependency name with its
-// category as the muted label.
+// category as the muted label. The screen opens on the categories, so the list
+// under test is the whole-catalog one that `/` shows (US4.1).
 func TestDependencyListIsBuiltFromTheCatalog(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
+	h.send(keyRunes("/"))
 
 	deps := h.model.deps
 	if got, want := len(deps.list.Items()), len(h.cat.Dependencies); got != want {
@@ -76,14 +78,14 @@ func TestTypingFiltersLive(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	before := len(h.model.deps.list.VisibleItems())
-	if before != len(h.cat.Dependencies) {
-		t.Fatalf("visible rows before searching = %d, want all %d", before, len(h.cat.Dependencies))
-	}
-
 	h.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	if !h.model.deps.list.SettingFilter() {
 		t.Fatal("/ did not focus the filter")
+	}
+
+	before := len(h.model.deps.list.VisibleItems())
+	if before != len(h.cat.Dependencies) {
+		t.Fatalf("visible rows before typing = %d, want all %d", before, len(h.cat.Dependencies))
 	}
 
 	h.typeText("postgres")

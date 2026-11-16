@@ -293,20 +293,20 @@ func TestEscClearsTheQueryBeforeItLeavesTheScreen(t *testing.T) {
 	}
 }
 
-// TestEnterOnTheDependencyScreenFinishesTheRun keeps the wizard able to end:
-// with no selection yet (US3.2), enter is the key that hands the answers back to
-// the caller so a project can be generated.
-func TestEnterOnTheDependencyScreenFinishesTheRun(t *testing.T) {
+// TestCtrlDFinishesTheRun keeps the wizard able to end: enter has a level to open
+// now, so ctrl+d is the key that hands the answers back to the caller (US4.1) and
+// a project can be generated.
+func TestCtrlDFinishesTheRun(t *testing.T) {
 	h := newHarness(t)
 	h.openDependencies()
 
-	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := h.model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	msgs := commandMessages(cmd)
 	if len(msgs) == 0 {
-		t.Fatal("enter on the dependency screen produced no message; the run would hang")
+		t.Fatal("ctrl+d on the dependency screen produced no message; the run would hang")
 	}
 	if _, ok := msgs[0].(tea.QuitMsg); !ok {
-		t.Errorf("enter produced %T, want tea.QuitMsg", msgs[0])
+		t.Errorf("ctrl+d produced %T, want tea.QuitMsg", msgs[0])
 	}
 }
 
