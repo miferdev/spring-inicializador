@@ -75,6 +75,12 @@ type dependenciesModel struct {
 	// delegate, cannot silently disarm the probe.
 	renders *int
 
+	// width and height are the terminal's, not the list's: the header and the two
+	// footer lines span the whole width, and a wide terminal splits the body into
+	// the list and the detail region (US5.1).
+	width  int
+	height int
+
 	list  list.Model
 	theme Theme
 }
@@ -101,11 +107,12 @@ func newDependenciesModel(cat *catalog.Catalog, seeded []string, width, height i
 		categories:   categoryItems(rankCategories(categories)),
 		selected:     newSelection(seeded),
 		level:        levelCategories,
+		width:        width,
+		height:       height,
 		theme:        theme,
 	}
 
-	listWidth, listHeight := dependenciesListSize(width, height)
-	screen.list = list.New(screen.categoryRows(), categoryDelegate{theme: theme}, listWidth, listHeight)
+	screen.list = list.New(screen.categoryRows(), categoryDelegate{theme: theme}, screen.listWidth(), dependenciesListHeight(height))
 	// The component's own chrome (title, filter bar, status bar, pagination dots,
 	// help) is off: the dots are Unicode, the screen owns its header and its two
 	// footer lines, and the header is what states the query. The filter bar also
@@ -249,7 +256,7 @@ func (d dependenciesModel) show(level dependencyLevel) dependenciesModel {
 	d.list.SetItems(d.rows())
 	d.list.Select(d.landingRow(level))
 
-	return d
+	return d.applySize()
 }
 
 // landingRow is the row a level starts on. The root goes back to the category the
@@ -292,18 +299,52 @@ func (d dependenciesModel) leaveSearch() dependenciesModel {
 	return d.show(d.searchFrom)
 }
 
-// resize applies a terminal size, keeping the rows the header and the footer
-// take.
+// resize applies a terminal size.
 func (d dependenciesModel) resize(width, height int) dependenciesModel {
-	d.list.SetSize(dependenciesListSize(width, height))
+	d.width, d.height = width, height
+	return d.applySize()
+}
+
+// applySize gives the list its share of the terminal. It is the one place a size
+// reaches the component, because the share depends on the level as well as on the
+// terminal: the category root never splits (US5.1).
+func (d dependenciesModel) applySize() dependenciesModel {
+	d.list.SetSize(d.listWidth(), dependenciesListHeight(d.height))
 	return d
 }
 
-// dependenciesListSize is the space the list component gets: the terminal minus
+// dependenciesListHeight is the rows the list component gets: the terminal minus
 // the header and the two footer lines. The floor keeps the component's paginator
 // arithmetic sane on a terminal that reports almost nothing.
-func dependenciesListSize(width, height int) (int, int) {
-	return max(1, width), max(4, height) - 3
+func dependenciesListHeight(height int) int {
+	return max(4, height) - 3
+}
+
+// detailMinWidth is the narrowest terminal that shows the detail region. Below it
+// the list keeps the whole width; US5.2 owns what happens between 100 and 119.
+const detailMinWidth = 120
+
+// detailWidth is the detail region's width and detailGap the separator and the
+// spaces around it, " | ". The list keeps the rest of the terminal.
+const (
+	detailWidth = 38
+	detailGap   = 3
+)
+
+// showDetail reports whether the body is split: the terminal is wide enough and the
+// level shows dependencies, because the category root has no dependency under the
+// cursor to describe.
+func (d dependenciesModel) showDetail() bool {
+	return d.width >= detailMinWidth && d.level != levelCategories
+}
+
+// listWidth is the room the list gets: the whole terminal, or what the detail
+// region leaves of it.
+func (d dependenciesModel) listWidth() int {
+	if !d.showDetail() {
+		return max(1, d.width)
+	}
+	return max(1, d.width-detailWidth-detailGap)
 }
 
 // newSelection turns the ids the command line already answered into the checked
@@ -402,18 +443,49 @@ func (d dependenciesModel) chosen() []string {
 // explanatory line instead of a window padded with blanks, so an empty screen
 // never looks frozen (US4.4).
 func (d dependenciesModel) view() string {
-	width := d.list.Width()
+	width := d.width
 
 	lines := []string{d.headerLine()}
 	if len(d.list.VisibleItems()) == 0 {
 		lines = append(lines, d.emptyLine())
 	} else {
-		lines = append(lines, trimBlankTail(d.list.View()))
+		lines = append(lines, d.body()...)
 	}
 	lines = append(lines, d.theme.Muted.Render(fitLine(d.statusLine(), width)))
 	lines = append(lines, d.theme.Muted.Render(fitLine(d.keyHints(), width)))
 
 	return strings.Join(lines, "\n")
+}
+
+// body is the region between the header and the footer: the list window, or the
+// list window beside the detail region when the terminal is wide enough (US5.1).
+// Both regions are joined row by row and the line's right side is trimmed, so a
+// short side never adds trailing blanks.
+func (d dependenciesModel) body() []string {
+	listLines := strings.Split(trimBlankTail(d.list.View()), "\n")
+	if !d.showDetail() {
+		return listLines
+	}
+
+	detail := d.detailLines(detailWidth, dependenciesListHeight(d.height))
+	rows := max(len(listLines), len(detail))
+	separator := d.theme.Border.Left
+
+	lines := make([]string, 0, rows)
+	for i := range rows {
+		left := strings.Repeat(" ", d.listWidth())
+		if i < len(listLines) {
+			// A row is as wide as its content, so the list side is padded to the
+			// column the separator lives in.
+			left = listLines[i] + strings.Repeat(" ", max(0, d.listWidth()-ansi.StringWidth(listLines[i])))
+		}
+		right := ""
+		if i < len(detail) {
+			right = detail[i]
+		}
+		lines = append(lines, strings.TrimRight(left+" "+separator+" "+right, " "))
+	}
+	return lines
 }
 
 // emptyLine is the one line a level with no rows shows instead of a padded
@@ -443,7 +515,7 @@ func trimBlankTail(view string) string {
 // totals follow and give way on a narrow terminal, because the scope is the part
 // that cannot be guessed from the rows (US4.3).
 func (d dependenciesModel) headerLine() string {
-	width := d.list.Width()
+	width := d.width
 	totals := categoryCount(len(d.categories)) + footerGap + dependencyCount(len(d.dependencies))
 	scope := d.scopeLine(width)
 
@@ -512,7 +584,7 @@ const dependenciesFinishHint = "ctrl+d finish"
 // The ids give way when the room runs out; the count survives, because the number
 // is the answer to "did my space register?".
 func (d dependenciesModel) statusLine() string {
-	width := d.list.Width()
+	width := d.width
 
 	line := d.resultLine()
 	if line != "" {
