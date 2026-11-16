@@ -199,6 +199,49 @@ func TestFrameHeightStaysWithinTheTerminal(t *testing.T) {
 	}
 }
 
+// TestSectionFramesStayWithinTheTerminal is US7.3's bound for the project form:
+// at the smallest terminal the tool promises and at the wide one, every section
+// occupies at most the terminal's height, no line is wider than its width, and the
+// hint bar sits on the last line intact. A truncated hint would tell the user
+// nothing about what enter does, which is the one thing the form has to explain.
+func TestSectionFramesStayWithinTheTerminal(t *testing.T) {
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{name: "80x24", width: 80, height: 24},
+		{name: "120x30", width: 120, height: 30},
+	} {
+		t.Run(size.name, func(t *testing.T) {
+			h := newSizedHarness(t, size.width, size.height)
+
+			for _, section := range h.model.project.sections {
+				if len(section.fields) == 0 {
+					t.Fatalf("%s has no rows, so this is not the frame US7.3 measures", section.name)
+				}
+				h.walkTo(section.fields[0].key)
+				view := h.model.View()
+
+				if got := frameLines(view); got > size.height {
+					t.Errorf("%s: the %s frame occupies %d lines, want at most %d", size.name, section.name, got, size.height)
+				}
+
+				lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+				for i, line := range lines {
+					if width := len([]rune(line)); width > size.width {
+						t.Errorf("%s: %s line %d is %d columns wide, want at most %d: %q",
+							size.name, section.name, i+1, width, size.width, line)
+					}
+				}
+
+				if got, want := strings.TrimRight(lines[len(lines)-1], " "), sectionHint(section); got != want {
+					t.Errorf("%s: %s hint bar = %q, want the complete %q", size.name, section.name, got, want)
+				}
+			}
+		})
+	}
+}
+
 // TestFrameCostStaysBoundedWithTheFullCatalog is the coarse guard the story asks
 // for: a frame at 206 rows must not cost what rendering the whole catalog costs.
 // It is not a benchmark, and two things keep it honest on a loaded machine.
