@@ -118,12 +118,12 @@ func TestExtractRefusesExistingDestination(t *testing.T) {
 		t.Fatalf("seed destination: %v", err)
 	}
 
-	overwrote, err := extract.Extract(testArchive(t), dest, false)
+	result, err := extract.Extract(testArchive(t), dest, false)
 	if err == nil {
-		t.Fatal("Extract overwrote a non-empty destination without force")
+		t.Fatal("Extract result.Replaced a non-empty destination without force")
 	}
-	if overwrote {
-		t.Error("overwrote = true, want false on a refused run")
+	if result.Replaced {
+		t.Error("result.Replaced = true, want false on a refused run")
 	}
 	if !strings.Contains(err.Error(), "--force") {
 		t.Errorf("error = %q, want it to name the flag that overrides the refusal", err)
@@ -146,12 +146,12 @@ func TestExtractOverwritesWithForce(t *testing.T) {
 		t.Fatalf("seed stale file: %v", err)
 	}
 
-	overwrote, err := extract.Extract(testArchive(t), dest, true)
+	result, err := extract.Extract(testArchive(t), dest, true)
 	if err != nil {
 		t.Fatalf("Extract with force: %v", err)
 	}
-	if !overwrote {
-		t.Error("overwrote = false, want true when force replaced an existing destination")
+	if !result.Replaced {
+		t.Error("result.Replaced = false, want true when force replaced an existing destination")
 	}
 
 	body, err := os.ReadFile(stale)
@@ -166,11 +166,11 @@ func TestExtractOverwritesWithForce(t *testing.T) {
 // An empty directory is the normal state of `mkdir checkout && --output checkout`,
 // so it is not a conflict.
 func TestExtractAllowsEmptyExistingDestination(t *testing.T) {
-	overwrote, err := extract.Extract(testArchive(t), t.TempDir(), false)
+	result, err := extract.Extract(testArchive(t), t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("Extract into an empty destination: %v", err)
 	}
-	if overwrote {
-		t.Error("overwrote = true, want false for an empty destination")
+	if result.Replaced {
+		t.Error("result.Replaced = true, want false for an empty destination")
 	}
 }

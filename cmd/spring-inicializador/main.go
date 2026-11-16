@@ -328,9 +328,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	client := &http.Client{Timeout: requestTimeout}
 
+	// The run report: one line per pipeline step, printed as it finishes so a slow
+	// step reads as work rather than a hang (US6.2). A dry run prints the request
+	// instead, so it gets no report at all.
+	report := stepReport{out: stdout}
+
 	c, err := catalog.Fetch(ctx, client, baseURL)
 	if err != nil {
+		if !cmd.dryRun {
+			report.fail(stepCatalog)
+		}
 		return reportError(stderr, err)
+	}
+	if !cmd.dryRun {
+		report.ok(stepCatalog, count(len(c.Dependencies), "dependency", "dependencies"))
 	}
 
 	// --java and --boot-version are the server's vocabulary: now that the catalog
@@ -371,18 +382,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	archive, err := render.Render(ctx, client, baseURL, opts)
 	if err != nil {
+		report.fail(stepGenerating)
 		return reportError(stderr, err)
 	}
+	report.ok(stepGenerating, size(len(archive)))
 
-	overwrote, err := extract.Extract(archive, cmd.output, cmd.force)
+	result, err := extract.Extract(archive, cmd.output, cmd.force)
 	if err != nil {
+		report.fail(stepExtracting)
 		return reportError(stderr, err)
 	}
+	report.ok(stepExtracting, count(result.Files, "file", "files"))
+	// The permissions step has no pass of its own: the extraction applies the
+	// archive's bits, so the step reports exactly what it made executable.
+	report.ok(stepPermissions, executables(result.Executable, opts.ArtifactID))
 
 	// The server names the archive's top-level directory after baseDir, which
 	// this tool always sets to the artifact id.
 	destination := filepath.Join(cmd.output, opts.ArtifactID)
-	if overwrote {
+	if result.Replaced {
 		fmt.Fprintf(stdout, "Overwrote %s\n", destination)
 	} else {
 		fmt.Fprintf(stdout, "Created %s\n", destination)

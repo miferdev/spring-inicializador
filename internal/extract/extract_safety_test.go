@@ -106,12 +106,12 @@ func TestExtractForceReplacesDestination(t *testing.T) {
 
 	archive := buildZip(t, zipEntry{name: "demo/pom.xml", body: "<project/>\n"})
 
-	overwrote, err := extract.Extract(archive, dest, true)
+	result, err := extract.Extract(archive, dest, true)
 	if err != nil {
 		t.Fatalf("Extract with force: %v", err)
 	}
-	if !overwrote {
-		t.Error("overwrote = false, want true")
+	if !result.Replaced {
+		t.Error("result.Replaced = false, want true")
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Error("leftover.txt survived a forced replacement")

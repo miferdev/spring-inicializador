@@ -33,7 +33,9 @@ func TestRunRefusesToOverwriteWithoutForce(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("forced run exit code = %d, want %d (stderr: %s)", code, exitOK, stderr.String())
 	}
-	if !strings.HasPrefix(stdout.String(), "Overwrote ") {
+	// The step report precedes it since US6.2, so the line is looked for, not
+	// prefixed to, the output.
+	if !strings.Contains(stdout.String(), "Overwrote ") {
 		t.Fatalf("stdout = %q, want it to say the project was overwritten", stdout.String())
 	}
 }

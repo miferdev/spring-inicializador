@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -35,6 +36,22 @@ const (
 	stagingPrefix = ".spring-inicializador-"
 )
 
+// Result is what an extraction did: whether an existing destination was replaced,
+// how many files were written, and which of them the archive made executable. The
+// caller reports these instead of guessing from the archive (US6.2).
+type Result struct {
+	// Replaced reports that an existing destination was moved aside and replaced.
+	Replaced bool
+
+	// Files is how many regular files were written.
+	Files int
+
+	// Executable names the files written with an executable bit, as the archive
+	// spells them ("demo/mvnw"), sorted. A Maven project ships mvnw, a Gradle one
+	// gradlew; an archive may ship none.
+	Executable []string
+}
+
 // Extract unpacks data into destDir, preserving the archive's top-level
 // directory (the server sends `demo/...`, so `--output .` yields `./demo`) and
 // each entry's stored permission bits, including the executable bit on mvnw and
@@ -42,41 +59,42 @@ const (
 //
 // A destination that already exists and holds anything is refused unless force
 // is set; nothing is written before that check, so a refused run leaves the
-// existing directory exactly as it was. The second return value reports whether
-// an existing destination was replaced, which lets the caller say "overwrote"
-// instead of "created".
+// existing directory exactly as it was. The result reports whether an existing
+// destination was replaced, which lets the caller say "overwrote" instead of
+// "created", and what was written, which lets it report the extraction and the
+// permissions it applied (US6.2).
 //
 // The archive is assembled in a temporary sibling directory and renamed into
 // place only once every entry has been written, so a failure partway through
 // cannot leave a half-extracted project behind.
-func Extract(data []byte, destDir string, force bool) (bool, error) {
+func Extract(data []byte, destDir string, force bool) (Result, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return false, fmt.Errorf("extract: opening archive: %w", err)
+		return Result{}, fmt.Errorf("extract: opening archive: %w", err)
 	}
 
 	exists, empty, err := dirState(destDir)
 	if err != nil {
-		return false, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
+		return Result{}, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
 	}
 	replacing := exists && !empty
 	if replacing && !force {
-		return false, fmt.Errorf("extract: destination %s already exists and is not empty; pass --force to overwrite", destDir)
+		return Result{}, fmt.Errorf("extract: destination %s already exists and is not empty; pass --force to overwrite", destDir)
 	}
 	if replacing {
 		if err := refuseUnsafeDestination(destDir); err != nil {
-			return false, err
+			return Result{}, err
 		}
 	}
 
 	parent := filepath.Dir(destDir)
 	if err := os.MkdirAll(parent, privateDirMode); err != nil {
-		return false, fmt.Errorf("extract: creating parent of %s: %w", destDir, err)
+		return Result{}, fmt.Errorf("extract: creating parent of %s: %w", destDir, err)
 	}
 
 	staging, err := os.MkdirTemp(parent, stagingPrefix)
 	if err != nil {
-		return false, fmt.Errorf("extract: creating staging directory: %w", err)
+		return Result{}, fmt.Errorf("extract: creating staging directory: %w", err)
 	}
 	// Until the rename succeeds, the staging directory is this function's
 	// problem; afterwards it belongs to the caller's destination.
@@ -87,17 +105,28 @@ func Extract(data []byte, destDir string, force bool) (bool, error) {
 		}
 	}()
 
+	result := Result{Replaced: replacing}
 	for _, file := range reader.File {
-		if err := extractFile(file, staging); err != nil {
-			return false, fmt.Errorf("extract: %s: %w", file.Name, err)
+		perm, err := extractFile(file, staging)
+		if err != nil {
+			return Result{}, fmt.Errorf("extract: %s: %w", file.Name, err)
+		}
+		if file.FileInfo().IsDir() {
+			continue
+		}
+
+		result.Files++
+		if perm&0o111 != 0 {
+			result.Executable = append(result.Executable, file.Name)
 		}
 	}
+	sort.Strings(result.Executable)
 
 	if err := adopt(staging, destDir, exists, replacing); err != nil {
-		return false, err
+		return Result{}, err
 	}
 	committed = true
-	return replacing, nil
+	return result, nil
 }
 
 // adopt moves the finished staging directory into destDir. An empty destination
@@ -162,10 +191,12 @@ func dirState(path string) (exists, empty bool, err error) {
 	return true, len(entries) == 0, nil
 }
 
-func extractFile(file *zip.File, destDir string) error {
+// extractFile writes one entry and returns the permission bits it applied, so the
+// caller can report what the archive made executable.
+func extractFile(file *zip.File, destDir string) (os.FileMode, error) {
 	path, err := inside(destDir, file.Name)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	mode := file.Mode()
 
@@ -175,18 +206,18 @@ func extractFile(file *zip.File, destDir string) error {
 			perm = defaultDirMode
 		}
 		if err := os.MkdirAll(path, privateDirMode); err != nil {
-			return err
+			return 0, err
 		}
-		return chmod(path, perm)
+		return perm, chmod(path, perm)
 	}
 	if !mode.IsRegular() {
 		// Symlinks and devices are not part of a Spring Initializr archive;
 		// refusing them keeps a hostile archive from creating one.
-		return fmt.Errorf("unsupported file type %s", mode.Type())
+		return 0, fmt.Errorf("unsupported file type %s", mode.Type())
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), privateDirMode); err != nil {
-		return fmt.Errorf("creating parent directory: %w", err)
+		return 0, fmt.Errorf("creating parent directory: %w", err)
 	}
 
 	perm := mode.Perm()
@@ -196,24 +227,24 @@ func extractFile(file *zip.File, destDir string) error {
 
 	src, err := file.Open()
 	if err != nil {
-		return fmt.Errorf("opening archive entry: %w", err)
+		return 0, fmt.Errorf("opening archive entry: %w", err)
 	}
 	defer src.Close()
 
 	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, privateFileMode)
 	if err != nil {
-		return fmt.Errorf("creating file: %w", err)
+		return 0, fmt.Errorf("creating file: %w", err)
 	}
 	if _, err := io.Copy(dst, src); err != nil {
 		dst.Close()
-		return fmt.Errorf("writing file: %w", err)
+		return 0, fmt.Errorf("writing file: %w", err)
 	}
 	if err := dst.Close(); err != nil {
-		return fmt.Errorf("closing file: %w", err)
+		return 0, fmt.Errorf("closing file: %w", err)
 	}
 
 	// Widen from the private mode now that the content is in place.
-	return chmod(path, perm)
+	return perm, chmod(path, perm)
 }
 
 // inside resolves an archive entry name against destDir and rejects anything
