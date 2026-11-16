@@ -22,7 +22,7 @@ import (
 func newTestModel(t *testing.T) formModel {
 	t.Helper()
 
-	project := newProjectForm(fixtureCatalog(t), nil)
+	project := newProjectForm(fixtureCatalog(t), nil, Default())
 	return formModel{
 		Form:         project.form,
 		state:        &project.state,
@@ -34,7 +34,7 @@ func newTestModel(t *testing.T) formModel {
 // TestPackageFollowsIdentifiers pins the story's example and the live behaviour
 // behind it: every identifier change recomputes the field.
 func TestPackageFollowsIdentifiers(t *testing.T) {
-	state := newProjectForm(fixtureCatalog(t), nil).state
+	state := newProjectForm(fixtureCatalog(t), nil, Default()).state
 
 	state.GroupID = "com.acme"
 	if !state.followPackage() {
@@ -68,7 +68,7 @@ func TestPackageFollowsIdentifiers(t *testing.T) {
 // TestHumanEditWins proves an edit is permanent: later identifier changes never
 // move the field again, and the (auto) marker disappears.
 func TestHumanEditWins(t *testing.T) {
-	state := newProjectForm(fixtureCatalog(t), nil).state
+	state := newProjectForm(fixtureCatalog(t), nil, Default()).state
 
 	state.PackageName = "org.custom"
 	if state.followPackage() {
@@ -96,7 +96,7 @@ func TestHumanEditWins(t *testing.T) {
 // TestClearingResumesDerivation proves an empty field re-arms the rule and never
 // reaches the request empty.
 func TestClearingResumesDerivation(t *testing.T) {
-	state := newProjectForm(fixtureCatalog(t), nil).state
+	state := newProjectForm(fixtureCatalog(t), nil, Default()).state
 	state.PackageName = "org.custom"
 	state.followPackage()
 

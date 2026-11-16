@@ -31,7 +31,7 @@ func TestFormOmitsProvidedFields(t *testing.T) {
 		KeyBuild:   options.BuildGradle,
 	}
 
-	form := newProjectForm(cat, provided)
+	form := newProjectForm(cat, provided, Default())
 
 	wantOrder := []Key{
 		KeyArtifactID, KeyName, KeyPackageName,
@@ -70,7 +70,7 @@ func TestFormDerivesPackageFromFlaggedIdentifiers(t *testing.T) {
 	form := newProjectForm(cat, Values{
 		KeyGroupID:    "com.acme",
 		KeyArtifactID: "billing",
-	})
+	}, Default())
 
 	want := options.DerivePackageName("com.acme", "billing")
 	if form.state.PackageName != want {
@@ -90,7 +90,7 @@ func TestFormDerivesPackageFromFlaggedIdentifiers(t *testing.T) {
 func TestProvidedPackageNameSurvivesIdentifierChanges(t *testing.T) {
 	cat := fixtureCatalog(t)
 
-	form := newProjectForm(cat, Values{KeyPackageName: "org.custom"})
+	form := newProjectForm(cat, Values{KeyPackageName: "org.custom"}, Default())
 
 	for _, field := range form.fields {
 		if field.key == KeyPackageName {
@@ -182,7 +182,7 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, reader, &stdout)
+		opts, ok, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, reader, &stdout)
 		done <- result{opts, ok, err}
 	}()
 

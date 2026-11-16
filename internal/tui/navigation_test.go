@@ -92,7 +92,7 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, ok, err := Run(cat, nil, nil, strings.NewReader("\x1b"), &stdout)
+		opts, ok, err := Run(cat, nil, nil, Settings{}, strings.NewReader("\x1b"), &stdout)
 		done <- result{opts: opts, ok: ok, err: err}
 	}()
 
@@ -185,8 +185,8 @@ func TestTabAndShiftTabReturnToTheSameField(t *testing.T) {
 // does not change what it describes.
 func TestSameStateRendersTheSameFields(t *testing.T) {
 	cat := fixtureCatalog(t)
-	first := newProjectForm(cat, nil)
-	second := newProjectForm(cat, nil)
+	first := newProjectForm(cat, nil, Default())
+	second := newProjectForm(cat, nil, Default())
 
 	if got, want := rowSnapshot(first), rowSnapshot(second); !reflect.DeepEqual(got, want) {
 		t.Fatalf("two forms from the same state differ:\n got %v\nwant %v", got, want)

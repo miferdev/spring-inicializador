@@ -64,6 +64,8 @@ Flags:
                      (default "https://start.spring.io")
   --dry-run          Print the resolved options and exit without generating
   --yes              Run without prompting, taking defaults
+  --fancy            Use Unicode borders and glyphs instead of ASCII
+  --no-color         Strip every style; NO_COLOR in the environment does the same
   --version          Print the version and exit
   --help, -h         Print this help and exit
 
@@ -98,6 +100,8 @@ type commandLine struct {
 	server      string
 	dryRun      bool
 	yes         bool
+	fancy       bool
+	noColor     bool
 	version     bool
 	help        bool
 }
@@ -125,6 +129,8 @@ func newFlagSet(output io.Writer) (*flag.FlagSet, *commandLine) {
 	flags.StringVar(&cmd.server, "server", defaultServer, "Initializr base URL for metadata and generation")
 	flags.BoolVar(&cmd.dryRun, "dry-run", false, "print the resolved options and exit without generating")
 	flags.BoolVar(&cmd.yes, "yes", false, "run without prompting, taking defaults")
+	flags.BoolVar(&cmd.fancy, "fancy", false, "use Unicode borders and glyphs instead of ASCII")
+	flags.BoolVar(&cmd.noColor, "no-color", false, "strip every style; NO_COLOR in the environment does the same")
 	flags.BoolVar(&cmd.version, "version", false, "print the version and exit")
 	flags.BoolVar(&cmd.help, "help", false, "print this help and exit")
 	flags.BoolVar(&cmd.help, "h", false, "print this help and exit (shorthand)")
@@ -257,6 +263,16 @@ var interactiveStdin = func(f *os.File) bool {
 	return term.IsTerminal(f.Fd())
 }
 
+// appearance is the theming a run asked for. NO_COLOR is honoured by presence, not
+// by value — even an empty setting disables color, which is what the convention
+// says — and --fancy is only ever opt-in.
+func appearance(fancy, noColor bool) tui.Settings {
+	if _, set := os.LookupEnv("NO_COLOR"); set {
+		noColor = true
+	}
+	return tui.Settings{Fancy: fancy, NoColor: noColor}
+}
+
 // runForm is the interactive wizard. It is a variable so a test can prove a run
 // does not open it, without needing a terminal of its own.
 var runForm = tui.Run
@@ -333,7 +349,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if !cmd.yes && interactiveStdin(os.Stdin) && tui.Asks(c, provided) {
 		// --deps answers the dependency screen the way the project flags answer
 		// its rows: the ids arrive already checked, and the screen decides.
-		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), os.Stdin, stdout)
+		chosen, ok, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}

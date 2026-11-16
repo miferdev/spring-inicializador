@@ -23,7 +23,7 @@ func TestDependenciesReachTheWizardAndTheRequest(t *testing.T) {
 
 	var seeded []string
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
 		seeded = append([]string(nil), dependencies...)
 
 		// What the screen would return after the user unchecked data-jpa.

@@ -9,10 +9,11 @@ package tui
 //
 //	go test ./internal/tui -run TestGoldenDependencyPane -update
 //
-// and read the diff before keeping it. The files are ASCII by construction: a
-// non-ASCII byte fails the test, so a glyph a legacy codepage cannot draw cannot
-// slip in. Trailing spaces are trimmed — they never reach the screen, and an editor
-// that strips them must not fail the suite.
+// and read the diff before keeping it. The ASCII frames are ASCII by construction: a
+// non-ASCII byte fails the test, so a glyph a legacy codepage cannot draw cannot slip
+// in. The one fancy frame may add its border's glyphs and nothing else. Trailing
+// spaces are trimmed — they never reach the screen, and an editor that strips them
+// must not fail the suite.
 
 import (
 	"flag"
@@ -21,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // updateGolden rewrites the golden files instead of comparing them.
@@ -35,6 +38,7 @@ func TestGoldenDependencyPane(t *testing.T) {
 		name          string
 		width, height int
 		open          string // empty means the category root
+		fancy         bool
 	}{
 		{name: "80x24-root", width: 80, height: 24},
 		{name: "80x24-web", width: 80, height: 24, open: "Web"},
@@ -42,29 +46,38 @@ func TestGoldenDependencyPane(t *testing.T) {
 		{name: "110x24-web", width: 110, height: 24, open: "Web"},
 		{name: "120x30-root", width: 120, height: 30},
 		{name: "120x30-web", width: 120, height: 30, open: "Web"},
+		// The same frame under --fancy: only the border glyphs may differ (US5.4).
+		{name: "120x30-web-fancy", width: 120, height: 30, open: "Web", fancy: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			screen := newDependenciesModel(cat, nil, tc.width, tc.height, Default())
+			theme := Default()
+			if tc.fancy {
+				theme = NewTheme(Settings{Fancy: true})
+			}
+
+			screen := newDependenciesModel(cat, nil, tc.width, tc.height, theme)
 			if tc.open != "" {
 				screen = openRootCategory(t, screen, tc.open)
 			}
 
-			compareGolden(t, filepath.Join("testdata", "dependencies-"+tc.name+".golden"), screen.view())
+			compareGolden(t, filepath.Join("testdata", "dependencies-"+tc.name+".golden"), screen.view(), theme.Border)
 		})
 	}
 }
 
 // compareGolden compares a frame to its golden file, or rewrites the file when the
-// test runs with -update.
-func compareGolden(t *testing.T, path, frame string) {
+// test runs with -update. The frame is ASCII, except that a frame drawn with a
+// Unicode border may use that border's own glyphs.
+func compareGolden(t *testing.T, path, frame string, border lipgloss.Border) {
 	t.Helper()
 
+	allowed := borderGlyphs(border)
 	want := goldenFrame(frame)
 	for _, r := range want {
-		if r > unicode.MaxASCII {
-			t.Fatalf("%s is not ASCII (found %q)", path, r)
+		if r > unicode.MaxASCII && !allowed[r] {
+			t.Fatalf("%s has %q, which is neither ASCII nor one of its border's glyphs", path, r)
 		}
 	}
 
@@ -85,6 +98,25 @@ func compareGolden(t *testing.T, path, frame string) {
 	if got := string(saved); got != want {
 		t.Errorf("the frame does not match %s\n--- want ---\n%s\n--- got ---\n%s", path, got, want)
 	}
+}
+
+// borderGlyphs is every character a border can draw: the only non-ASCII runes a
+// fancy frame may contain.
+func borderGlyphs(border lipgloss.Border) map[rune]bool {
+	edges := []string{
+		border.Top, border.Bottom, border.Left, border.Right,
+		border.TopLeft, border.TopRight, border.BottomLeft, border.BottomRight,
+		border.MiddleLeft, border.MiddleRight, border.Middle,
+		border.MiddleTop, border.MiddleBottom,
+	}
+
+	glyphs := make(map[rune]bool, len(edges))
+	for _, edge := range edges {
+		for _, r := range edge {
+			glyphs[r] = true
+		}
+	}
+	return glyphs
 }
 
 // goldenFrame is what a golden file holds: the frame with trailing spaces trimmed

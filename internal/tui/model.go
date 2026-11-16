@@ -60,11 +60,11 @@ type model struct {
 // answered, with the dependency ids --deps already answered checked. Everything
 // is created once: switching screens reuses the same state and the same list, so
 // the round trip allocates nothing and loses nothing.
-func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string) model {
+func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string, theme Theme) model {
 	return model{
 		project: project,
 		form:    newFormModel(project),
-		deps:    newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, Default()),
+		deps:    newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, theme),
 		screen:  screenProject,
 	}
 }

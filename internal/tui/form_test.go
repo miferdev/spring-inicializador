@@ -68,7 +68,7 @@ func choiceLabels(f field) []string {
 // populated from the catalog, in the server's order, and the build select
 // offers only the three project archives, never the build-file types.
 func TestFormOffersWhatTheServerPublishes(t *testing.T) {
-	form := newProjectForm(fixtureCatalog(t), nil)
+	form := newProjectForm(fixtureCatalog(t), nil, Default())
 
 	wantOrder := []struct {
 		key   Key
@@ -180,7 +180,7 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 // decision D3: Maven wins over the metadata's `gradle-project`.
 func TestFormDefaults(t *testing.T) {
 	cat := fixtureCatalog(t)
-	state := newProjectForm(cat, nil).state
+	state := newProjectForm(cat, nil, Default()).state
 
 	if state.Build != options.BuildMaven {
 		t.Errorf("Build = %q, want %q (D3)", state.Build, options.BuildMaven)
@@ -232,7 +232,7 @@ func TestMissingMetadataKeyBecomesANote(t *testing.T) {
 	cat := fixtureCatalog(t)
 	cat.Packaging = catalog.Select{}
 
-	form := newProjectForm(cat, nil)
+	form := newProjectForm(cat, nil, Default())
 
 	f := fieldByKey(t, form.fields, KeyPackaging)
 	if f.kind != fieldNote {
@@ -266,7 +266,7 @@ func TestMissingMetadataKeyBecomesANote(t *testing.T) {
 func TestOptionsFromStateRoundTrips(t *testing.T) {
 	cat := fixtureCatalog(t)
 
-	got := optionsFromState(cat, newProjectForm(cat, nil).state)
+	got := optionsFromState(cat, newProjectForm(cat, nil, Default()).state)
 	want := options.Defaults(cat)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("optionsFromState(defaults) = %+v, want %+v", got, want)

@@ -104,6 +104,10 @@ type projectForm struct {
 	// firstKey is the key of the first row the form asks. "Back" has nowhere to
 	// go from there, which is how esc tells abort apart from a step back.
 	firstKey Key
+
+	// theme is the appearance the flags chose. The form draws its own border, so
+	// it is part of the widgets, not of the view around them (US5.4).
+	theme Theme
 }
 
 // newProjectForm builds the form from the catalog and starts every row on its
@@ -111,8 +115,8 @@ type projectForm struct {
 // are left out, and their values seed the state so the resolved Options carry
 // them. It is the only constructor: tests assert on the fields it produces and
 // Run renders the same form.
-func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
-	form := &projectForm{fields: buildFields(cat, provided)}
+func newProjectForm(cat *catalog.Catalog, provided Values, theme Theme) *projectForm {
+	form := &projectForm{fields: buildFields(cat, provided), theme: theme}
 	form.firstKey = firstAskedKey(form.fields)
 
 	values := form.state.pointers()
@@ -145,7 +149,7 @@ func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
 		}
 	}
 
-	form.form, form.packageInput = newForm(form.fields, values)
+	form.form, form.packageInput = newForm(form.fields, values, theme)
 	if form.packageInput != nil {
 		form.packageInput.Description(form.state.packageMarker())
 	}
@@ -158,7 +162,7 @@ func newProjectForm(cat *catalog.Catalog, provided Values) *projectForm {
 // and nothing here copies them.
 func (f *projectForm) reopen() {
 	values := f.state.pointers()
-	f.form, f.packageInput = newForm(f.fields, values)
+	f.form, f.packageInput = newForm(f.fields, values, f.theme)
 	if f.packageInput != nil {
 		f.packageInput.Description(f.state.packageMarker())
 	}
@@ -371,7 +375,7 @@ func (s *formState) packageMarker() string {
 // A form with nothing to ask has no form at all: huh panics on an empty group
 // because it always expects a selected field, and a Run that renders it would be
 // asking nothing anyway.
-func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
+func newForm(fields []field, values map[Key]*string, theme Theme) (*huh.Form, *huh.Input) {
 	if len(fields) == 0 {
 		return nil, nil
 	}
@@ -386,7 +390,7 @@ func newForm(fields []field, values map[Key]*string) (*huh.Form, *huh.Input) {
 		widgets = append(widgets, widget)
 	}
 
-	form := huh.NewForm(huh.NewGroup(widgets...)).WithTheme(Default().huhForm())
+	form := huh.NewForm(huh.NewGroup(widgets...)).WithTheme(theme.huhForm())
 	if focused := form.GetFocusedField(); focused != nil {
 		// huh focuses the first row from Init, and only the program calls Init
 		// once. A form rebuilt after a screen change never sees it, so focus the

@@ -95,8 +95,14 @@ func (m formModel) atFirstField() bool {
 // the form's first row where there is no previous row to step back to. That is
 // not an error: there is nothing to do, and the caller exits successfully
 // without writing anything.
-func Run(cat *catalog.Catalog, provided Values, dependencies []string, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
-	project := newProjectForm(cat, provided)
+func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, stdin io.Reader, stdout io.Writer) (options.Options, bool, error) {
+	theme := NewTheme(settings)
+	if settings.NoColor {
+		// The form is painted by huh and the rows by the list component: only the
+		// process-wide color profile reaches all of them (US5.4).
+		DisableColor()
+	}
+	project := newProjectForm(cat, provided, theme)
 	if !project.asks() {
 		opts := optionsFromState(cat, project.state)
 		opts.Deps = dependencies
@@ -107,7 +113,7 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, stdin io.
 	// default commands (none): a completed form opens the dependency list
 	// instead of quitting the program.
 	last, err := tea.NewProgram(
-		newModel(cat, project, dependencies),
+		newModel(cat, project, dependencies, theme),
 		tea.WithInput(stdin),
 		tea.WithOutput(stdout),
 	).Run()

@@ -41,7 +41,7 @@ func newSeededHarness(t *testing.T, dependencies ...string) *harness {
 	t.Helper()
 
 	cat := fixtureCatalog(t)
-	root := newModel(cat, newProjectForm(cat, nil), dependencies)
+	root := newModel(cat, newProjectForm(cat, nil, Default()), dependencies, Default())
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
 	next, _ := root.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
