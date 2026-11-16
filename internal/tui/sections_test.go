@@ -247,23 +247,22 @@ func TestEscOnIdentitysFirstRowStillLeaves(t *testing.T) {
 }
 
 // TestTheSectionCounterIsRightAtEachStep walks the whole form and checks the
-// header of every section, and that no frame is wider than the terminal.
+// header of every section, and that no frame is wider than the terminal. Nothing is
+// answered here, so the counter still names all three sections (US7.2 covers the
+// answered ones).
 func TestTheSectionCounterIsRightAtEachStep(t *testing.T) {
 	h := newSizedHarness(t, 80, 24)
 
+	titles := []string{"Identity 1/3", "Build 2/3", "Versions 3/3"}
 	sections := h.model.project.sections
-	for i, section := range sections {
-		if len(section.fields) == 0 {
-			continue
-		}
-
-		if want := section.title(i+1, len(sections)); frameTitle(h.model.View()) != want {
-			t.Errorf("frame starts with %q, want %q", frameTitle(h.model.View()), want)
+	for i, title := range titles {
+		if got := frameTitle(h.model.View()); got != title {
+			t.Errorf("frame starts with %q, want %q", got, title)
 		}
 		assertFitsEighty(t, h.model.View())
 
-		h.walkTo(section.fields[len(section.fields)-1].key)
-		if i == len(sections)-1 {
+		h.walkTo(sections[i].fields[len(sections[i].fields)-1].key)
+		if i == len(titles)-1 {
 			break
 		}
 		h.press(tea.KeyEnter)
@@ -339,39 +338,4 @@ func TestPackageDerivationSurvivesSectionChanges(t *testing.T) {
 			t.Errorf("PackageName = %q after the artifact changed, want the human value %q", got, edited)
 		}
 	})
-}
-
-// TestASectionTheFlagsAnsweredIsNotRendered is today's answer to a section with no
-// rows: the flags already answered all of Identity, huh cannot render a group with
-// no fields, so the form opens on Build and the counter still says 2/3. US7.2 is
-// where such a section stops counting and the number becomes 1/2; this test pins
-// the intermediate behaviour so that change stays deliberate.
-func TestASectionTheFlagsAnsweredIsNotRendered(t *testing.T) {
-	cat := fixtureCatalog(t)
-	provided := Values{
-		KeyGroupID:     "com.acme",
-		KeyArtifactID:  "billing",
-		KeyName:        "billing",
-		KeyPackageName: "com.acme.billing",
-	}
-
-	project := newProjectForm(cat, provided, Default())
-	if got := len(project.sections[0].fields); got != 0 {
-		t.Fatalf("Identity holds %d rows, want none: every row was answered", got)
-	}
-	if project.form == nil {
-		t.Fatal("the form is nil although Build and Versions still ask")
-	}
-	if got := project.firstKey; got != KeyBuild {
-		t.Errorf("firstKey = %q, want Build's first row %q", got, KeyBuild)
-	}
-	if got := project.sections[1].title(2, len(project.sections)); got != "Build 2/3" {
-		t.Errorf("section title = %q, want the fixed 2/3 of US7.1", got)
-	}
-
-	root := newModel(cat, project, nil, Default(), ".")
-	focused := root.form.Form.GetFocusedField()
-	if focused == nil || Key(focused.GetKey()) != KeyBuild {
-		t.Fatalf("the form does not open on Build's first row")
-	}
 }

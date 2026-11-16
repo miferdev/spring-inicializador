@@ -47,9 +47,22 @@ func newSeededHarness(t *testing.T, dependencies ...string) *harness {
 // test wants from the start: a later resize would not reach it.
 func newSizedHarness(t *testing.T, width, height int, dependencies ...string) *harness {
 	t.Helper()
+	return newSizedHarnessWith(t, width, height, nil, dependencies...)
+}
+
+// newProvidedHarness builds the wizard over a form the flags already answered part
+// of, at a fixed size.
+func newProvidedHarness(t *testing.T, width, height int, provided Values) *harness {
+	t.Helper()
+	return newSizedHarnessWith(t, width, height, provided)
+}
+
+// newSizedHarnessWith is the one constructor the wrappers above share.
+func newSizedHarnessWith(t *testing.T, width, height int, provided Values, dependencies ...string) *harness {
+	t.Helper()
 
 	cat := fixtureCatalog(t)
-	root := newModel(cat, newProjectForm(cat, nil, Default()), dependencies, Default(), ".")
+	root := newModel(cat, newProjectForm(cat, provided, Default()), dependencies, Default(), ".")
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
 	next, _ := root.Update(tea.WindowSizeMsg{Width: width, Height: height})

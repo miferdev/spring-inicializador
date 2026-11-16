@@ -98,6 +98,11 @@ const autoMarker = "(auto)"
 type section struct {
 	name   string
 	fields []field
+
+	// title is the header the frame shows, such as "Build 1/2". Only
+	// shownSections fills it, because the number depends on the pages that will
+	// actually be rendered, not on the rows a flag happened to answer (US7.2).
+	title string
 }
 
 // sectionKeys lists the form's pages in display order. A row belongs to exactly
@@ -113,8 +118,9 @@ var sectionKeys = []struct {
 
 // splitSections partitions the described rows into the pages the form shows,
 // keeping the page order and the row order inside a page. A page whose rows the
-// flags all answered keeps its place and simply has no rows (US7.2 decides whether
-// it keeps its number).
+// flags all answered keeps its place in this list with no rows: the skipping and
+// the numbering are shownSections' job, so the rows still belong to exactly one
+// page (US7.1, US7.2).
 func splitSections(fields []field) []section {
 	sections := make([]section, len(sectionKeys))
 	for i, known := range sectionKeys {
@@ -132,12 +138,24 @@ func splitSections(fields []field) []section {
 	return sections
 }
 
-// title is the line the frame shows above a section: its name and its place among
-// every section, so nothing has to be counted by eye. The total is the number of
-// sections, not of the ones with rows, until US7.2 renumbers the sections it hides
-// (US7.1).
-func (s section) title(index, total int) string {
-	return fmt.Sprintf("%s %d/%d", s.name, index, total)
+// shownSections returns the sections that have rows to ask, each carrying the
+// header it will be drawn with: the pages and the counter are built from this one
+// list, so a number can never point at a page that is not there (US7.2). A section
+// the flags answered completely drops out, including from the middle, and the
+// sections after it move up.
+func shownSections(sections []section) []section {
+	shown := make([]section, 0, len(sections))
+	for _, s := range sections {
+		if len(s.fields) == 0 {
+			continue
+		}
+		shown = append(shown, s)
+	}
+
+	for i := range shown {
+		shown[i].title = fmt.Sprintf("%s %d/%d", shown[i].name, i+1, len(shown))
+	}
+	return shown
 }
 
 // projectForm is the project form: the field descriptions, the state they
@@ -432,19 +450,21 @@ func (s *formState) packageMarker() string {
 // section. It also returns the package input, which the update loop pushes the
 // derived value and the (auto) marker into.
 //
-// A section with no rows is left out: huh panics on a group without fields
-// because it always expects a selected one, and a section the flags answered
-// completely has nothing to render. A form with no sections left has no form at
-// all, and a Run that rendered it would be asking nothing anyway (US7.1; US7.2
-// hides such a section and renumbers the rest).
+// Only the sections with rows are rendered, and they are numbered from that same
+// list: a section the flags answered completely is gone, including from the middle
+// (US7.2). huh panics on a group without fields because it always expects a
+// selected one, so a section with no rows could not be drawn even if the counter
+// still named it. A form with no sections left has no form at all, and a Run that
+// rendered it would be asking nothing anyway.
 func newForm(sections []section, values map[Key]*string, theme Theme) (*huh.Form, *huh.Input) {
-	groups := make([]*huh.Group, 0, len(sections))
-	var packageInput *huh.Input
-	for i, section := range sections {
-		if len(section.fields) == 0 {
-			continue
-		}
+	shown := shownSections(sections)
+	if len(shown) == 0 {
+		return nil, nil
+	}
 
+	groups := make([]*huh.Group, 0, len(shown))
+	var packageInput *huh.Input
+	for _, section := range shown {
 		widgets := make([]huh.Field, 0, len(section.fields))
 		for _, f := range section.fields {
 			widget := f.widget(values[f.key])
@@ -453,11 +473,7 @@ func newForm(sections []section, values map[Key]*string, theme Theme) (*huh.Form
 			}
 			widgets = append(widgets, widget)
 		}
-		groups = append(groups, huh.NewGroup(widgets...).Title(section.title(i+1, len(sections))))
-	}
-
-	if len(groups) == 0 {
-		return nil, nil
+		groups = append(groups, huh.NewGroup(widgets...).Title(section.title))
 	}
 
 	form := huh.NewForm(groups...).WithTheme(theme.huhForm())
