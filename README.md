@@ -16,9 +16,9 @@ no runtime, no `npx` latency.
 
 ## Status
 
-**Pre-alpha.** The wizard works end to end: a project form, a searchable dependency list, then
-generation. Everything on offer comes from the server's catalog, so the choices you see are the choices
-that exist. Categories in the dependency pane are the next slice.
+**Pre-alpha.** The wizard works end to end: a project form, a dependency pane with categories and search,
+then generation. Everything on offer comes from the server's catalog, so the choices you see are the
+choices that exist. The detail panel and terminal theming are the next slice.
 
 | Slice | What it adds | State |
 | --- | --- | --- |
@@ -26,7 +26,8 @@ that exist. Categories in the dependency pane are the next slice.
 | VS1 | Generate and extract a project from flags | done |
 | VS2 | Project form with flag parity | done |
 | VS3 | Searchable dependency list | done |
-| VS4 | Category level in the dependency pane | next |
+| VS4 | Category level in the dependency pane | done |
+| VS5 | Detail panel and terminal theming | next |
 | VS4 | Category level in the dependency pane | planned |
 | VS5 | Detail panel and terminal theming | planned |
 | VS6 | Review, run and non-interactive contract | planned |
@@ -52,11 +53,11 @@ Generating a project needs network access to the Initializr API.
 ## Usage
 
 On a terminal it opens the wizard. The form asks for the project fields: `tab` moves on, `esc` goes back a
-field, and `esc` on the first field leaves without writing anything. Then the dependency list — `/`
-searches all of them, `space` selects, `enter` finishes, and `esc` returns to the form with every answer
-intact. Flags answer fields instead of being a separate mode: pass two and the wizard asks only for the
-rest. Redirecting stdin or passing `--yes` skips the wizard entirely, which is what makes the same binary
-usable in a pipeline.
+field, and `esc` on the first field leaves without writing anything. Then the dependencies — the
+categories with their counts, `enter` to open one, `/` to search all 206 from any level, `space` to
+select, `esc` to back out a level and `ctrl+d` to finish. Flags answer fields instead of being a separate
+mode: pass two and the wizard asks only for the rest. Redirecting stdin or passing `--yes` skips the
+wizard entirely, which is what makes the same binary usable in a pipeline.
 
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
@@ -87,29 +88,29 @@ The project is extracted into `<output>/<artifact-id>`, with the permission bits
 Server rejections are printed verbatim. The tool does not reimplement the server's validation, so when
 a version or dependency is invalid you read the same sentence the web UI would show you.
 
-The dependency list is flat today: 206 rows, searchable, ranked by id then name then category. Categories
-are the next slice; when they land the pane will look roughly like this — counts and names come from the
+The dependency pane opens on the categories and looks roughly like this — counts and names come from the
 metadata, never from this file:
 
 ```text
-+------------------------------------------------------------------------------+
-|  spring-inicializador   Dependencies                         / search all    |
-+------------------------------------------------------------------------------+
-|  > AI                                                                   (50) |
-|    SQL                                                                  (19) |
-|    Web                                                                  (18) |
-|    NoSQL                                                                (15) |
-|    Messaging                                                            (12) |
-|    I/O                                                                  (12) |
-|    Observability                                                        (11) |
-|    Security                                                              (9) |
-|    Developer Tools                                                       (7) |
-|    Ops                                                                   (6) |
-|    ... 23 categories                                                         |
-+------------------------------------------------------------------------------+
-|  enter open category   / fuzzy find all 206   space toggle   ? help           |
-+------------------------------------------------------------------------------+
+23 categories  206 dependencies
+> AI                                                                    (50)
+  SQL                                                                   (19)
+  Web                                                                   (18)
+  NoSQL                                                                 (15)
+  Messaging                                                             (12)
+  I/O                                                                   (12)
+  Observability                                                         (11)
+  Security                                                               (9)
+  Developer Tools                                                        (7)
+  Ops                                                                    (6)
+  ...
+2 selected: web, data-jpa
+enter open  / find  esc back  ctrl+d finish
 ```
+
+Inside a category the header turns into `< Web (18)`, and searching turns it into `Search: "postgres"`.
+The same `/` searches all 206 from either level, because a search that silently narrowed would hide
+results you cannot see you are missing.
 
 ## Design commitments
 
