@@ -357,11 +357,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	provided := providedByFlags(cmd, passed)
+
 	// --no declines the only destructive action this tool has before a request is
-	// spent: an occupied --output would be refused at extraction anyway, and the
-	// refusal is cheaper and clearer here, with nothing to undo.
-	if err := refuseDestructive(cmd); err != nil {
-		return reportError(stderr, err)
+	// spent. The name may come from the flags, in which case the destination is
+	// already known; when it comes from the metadata the same check runs again once
+	// it is (VS8.2).
+	location := strings.TrimSpace(cmd.output)
+	if name, named := provided[tui.KeyName]; named && strings.TrimSpace(name) != "" {
+		if err := refuseDestructive(cmd, projectDestination(location, name)); err != nil {
+			return reportError(stderr, err)
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -393,11 +399,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	opts := resolve(c, cmd, passed)
-	provided := providedByFlags(cmd, passed)
-
-	// The location is where the project is written. --output answers the form's
-	// Location row and is the whole answer for a scripted run (VS8).
-	location := strings.TrimSpace(cmd.output)
 
 	// On a terminal, with a terminal output, the form asks for exactly what the
 	// flags did not answer. --yes, --no, a redirected stdin and a piped stdout all
@@ -426,6 +427,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		location = chosenLocation
 	}
 
+	// The project's name is the folder the run writes into. An empty one would make
+	// the destination the location itself, which --force would replace, so it is
+	// refused rather than guessed (VS8.2).
+	if strings.TrimSpace(opts.ArtifactID) == "" {
+		fmt.Fprintln(stderr, "spring-inicializador: the project name is empty; name the project so the run knows which folder to write")
+		return exitUsage
+	}
+
+	project := projectDestination(location, opts.ArtifactID)
+
+	// --no again, with the destination the run actually resolved: the name may have
+	// come from the metadata or the form (VS8.2).
+	if err := refuseDestructive(cmd, project); err != nil {
+		return reportError(stderr, err)
+	}
+
 	// --dry-run resolves everything a real run would and then prints it instead
 	// of generating: no /starter.zip request, no extraction, no output directory.
 	if cmd.dryRun {
@@ -440,7 +457,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	report.ok(stepGenerating, size(len(archive)))
 
-	result, err := extract.Extract(archive, location, cmd.force)
+	result, err := extract.Extract(archive, project, cmd.force)
 	if err != nil {
 		report.fail(stepExtracting)
 		return reportError(stderr, err)
@@ -448,33 +465,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 	report.ok(stepExtracting, count(result.Files, "file", "files"))
 	// The permissions step has no pass of its own: the extraction applies the
 	// archive's bits, so the step reports exactly what it made executable.
-	report.ok(stepPermissions, executables(result.Executable, opts.ArtifactID))
+	report.ok(stepPermissions, executables(result.Executable))
 
-	// The server names the archive's top-level directory after baseDir, which
-	// this tool always sets to the artifact id — and the artifact id is the name the
-	// Project section asked for, so this is <Location>/<Name> (VS8; US8.2 renames
-	// the directory instead of relying on that agreement).
-	destination := filepath.Join(location, opts.ArtifactID)
 	if result.Replaced {
-		fmt.Fprintf(stdout, "Overwrote %s\n", destination)
+		fmt.Fprintf(stdout, "Overwrote %s\n", project)
 	} else {
-		fmt.Fprintf(stdout, "Created %s\n", destination)
+		fmt.Fprintf(stdout, "Created %s\n", project)
 	}
-	fmt.Fprintf(stdout, "Next: cd %s && %s\n", destination, runCommand(opts))
+	fmt.Fprintf(stdout, "Next: cd %s && %s\n", project, runCommand(opts))
 	return exitOK
 }
 
+// projectDestination is where the run writes: the location the Project section
+// asked for, joined with the project's name (which is its artifact id). It is the
+// extraction's destination and the path the report names (VS8.2).
+func projectDestination(location, name string) string {
+	return filepath.Join(location, name)
+}
+
 // refuseDestructive declines the only destructive action this tool has — replacing
-// a non-empty --output directory — when the run asked for every destructive action
-// to be declined. It answers before the metadata request, so a refusal costs
-// nothing and can never write anything. A dry run is exempt: it writes nothing
-// whether or not a destination exists.
-func refuseDestructive(cmd *commandLine) error {
+// a non-empty project directory — when the run asked for every destructive action
+// to be declined. It answers before the metadata request when the flags already
+// name the project, so a refusal costs nothing and can never write anything. A dry
+// run is exempt: it writes nothing whether or not the destination exists.
+func refuseDestructive(cmd *commandLine, project string) error {
 	if !cmd.no || cmd.dryRun {
 		return nil
 	}
 
-	occupied, err := extract.Occupied(cmd.output)
+	occupied, err := extract.Occupied(project)
 	if err != nil {
 		return err
 	}
@@ -485,7 +504,7 @@ func refuseDestructive(cmd *commandLine) error {
 	// --no outranks --force: a permission cannot undo a prohibition, and the
 	// refusal is loud (exit 1 naming the flag), so a script that wants the
 	// replacement knows exactly which flag to drop.
-	return fmt.Errorf("--no refuses to replace %s; remove --no and pass --force to overwrite", cmd.output)
+	return fmt.Errorf("--no refuses to replace %s; remove --no and pass --force to overwrite", project)
 }
 
 // resolve starts from the metadata defaults and applies every value the command

@@ -18,17 +18,27 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/tui"
 )
 
-// seedOutput makes destDir look like a finished earlier run, and returns a file
-// whose bytes prove a later run did not touch it.
-func seedOutput(t *testing.T) (dir, marker string) {
+// seedOutput makes the location look like somebody's working folder with a
+// finished earlier run in it: a sibling file next to the project directory, and a
+// project directory named after the default project. The conflict is measured on
+// the project directory, never on the location (VS8.2).
+func seedOutput(t *testing.T) (location, project, marker string) {
 	t.Helper()
 
-	dir = t.TempDir()
-	marker = filepath.Join(dir, "keep.txt")
-	if err := os.WriteFile(marker, []byte("untouched\n"), 0o644); err != nil {
-		t.Fatalf("seeding %s: %v", dir, err)
+	location = t.TempDir()
+	if err := os.WriteFile(filepath.Join(location, "otro.txt"), []byte("saved\n"), 0o644); err != nil {
+		t.Fatalf("seeding %s: %v", location, err)
 	}
-	return dir, marker
+
+	project = filepath.Join(location, "demo")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("seeding %s: %v", project, err)
+	}
+	marker = filepath.Join(project, "keep.txt")
+	if err := os.WriteFile(marker, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatalf("seeding %s: %v", marker, err)
+	}
+	return location, project, marker
 }
 
 // assertUntouched proves a refused run wrote nothing: the marker still holds the
@@ -69,10 +79,10 @@ func helpLine(help, flag string) string {
 func TestYesAndNoCannotBeCombined(t *testing.T) {
 	fake := newFakeInitializr(t)
 	pipeStdin(t)
-	dir, marker := seedOutput(t)
+	location, project, marker := seedOutput(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(fake.args("--output", dir, "--yes", "--no"), &stdout, &stderr)
+	code := run(fake.args("--output", location, "--yes", "--no"), &stdout, &stderr)
 
 	if code != exitUsage {
 		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitUsage, stderr.String())
@@ -89,7 +99,7 @@ func TestYesAndNoCannotBeCombined(t *testing.T) {
 		t.Errorf("requests = %d metadata, %d generation; a usage error must not reach the server",
 			fake.metadataCalls, fake.generationCalls)
 	}
-	assertUntouched(t, dir, marker)
+	assertUntouched(t, project, marker)
 }
 
 // TestYesAloneRefusesToReplace: --yes accepts defaults, it does not grant
@@ -97,10 +107,10 @@ func TestYesAndNoCannotBeCombined(t *testing.T) {
 func TestYesAloneRefusesToReplace(t *testing.T) {
 	fake := newFakeInitializr(t)
 	pipeStdin(t)
-	dir, marker := seedOutput(t)
+	location, project, marker := seedOutput(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(fake.args("--output", dir, "--yes"), &stdout, &stderr)
+	code := run(fake.args("--output", location, "--yes"), &stdout, &stderr)
 
 	if code != exitFailure {
 		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitFailure, stderr.String())
@@ -111,35 +121,53 @@ func TestYesAloneRefusesToReplace(t *testing.T) {
 	if strings.Contains(stdout.String(), "Created ") {
 		t.Errorf("stdout = %q, want no created line after a refusal", stdout.String())
 	}
-	assertUntouched(t, dir, marker)
+	assertUntouched(t, project, marker)
 }
 
-// TestNoRefusesToReplaceBeforeAnyRequest: --no declines the destructive action
-// before the metadata request, so declining costs nothing and cannot write.
+// TestNoRefusesToReplaceBeforeAnyRequest: --no declines the destructive action on
+// the project's own directory. A name on the command line makes the destination
+// known before the first request; a name that only the metadata provides costs the
+// metadata request, and the refusal still comes before generation (VS8.2).
 func TestNoRefusesToReplaceBeforeAnyRequest(t *testing.T) {
-	fake := newFakeInitializr(t)
-	pipeStdin(t)
-	dir, marker := seedOutput(t)
+	cases := []struct {
+		name            string
+		args            []string
+		metadataAllowed int
+	}{
+		{name: "named on the command line", args: []string{"--name", "demo"}},
+		{name: "named by the metadata", args: nil, metadataAllowed: 1},
+	}
 
-	var stdout, stderr bytes.Buffer
-	code := run(fake.args("--output", dir, "--no"), &stdout, &stderr)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeInitializr(t)
+			pipeStdin(t)
+			location, project, marker := seedOutput(t)
 
-	if code != exitFailure {
-		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitFailure, stderr.String())
+			args := append([]string{"--output", location, "--no"}, tc.args...)
+			var stdout, stderr bytes.Buffer
+			code := run(fake.args(args...), &stdout, &stderr)
+
+			if code != exitFailure {
+				t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitFailure, stderr.String())
+			}
+			for _, want := range []string{"--no", "--force"} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr = %q, want it to name %q", stderr.String(), want)
+				}
+			}
+			if fake.generationCalls != 0 {
+				t.Errorf("generation calls = %d, want none: a refusal must not spend one", fake.generationCalls)
+			}
+			if fake.metadataCalls > tc.metadataAllowed {
+				t.Errorf("metadata calls = %d, want at most %d", fake.metadataCalls, tc.metadataAllowed)
+			}
+			if tc.metadataAllowed == 0 && stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want nothing before the first step", stdout.String())
+			}
+			assertUntouched(t, project, marker)
+		})
 	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want nothing before the first step", stdout.String())
-	}
-	for _, want := range []string{"--no", "--force"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("stderr = %q, want it to name %q", stderr.String(), want)
-		}
-	}
-	if fake.metadataCalls != 0 || fake.generationCalls != 0 {
-		t.Errorf("requests = %d metadata, %d generation; a refusal must not spend one",
-			fake.metadataCalls, fake.generationCalls)
-	}
-	assertUntouched(t, dir, marker)
 }
 
 // TestNoOverridesForce pins the rule for the contradictory pair: --force grants the
@@ -149,10 +177,10 @@ func TestNoRefusesToReplaceBeforeAnyRequest(t *testing.T) {
 func TestNoOverridesForce(t *testing.T) {
 	fake := newFakeInitializr(t)
 	pipeStdin(t)
-	dir, marker := seedOutput(t)
+	location, project, marker := seedOutput(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(fake.args("--output", dir, "--no", "--force"), &stdout, &stderr)
+	code := run(fake.args("--output", location, "--no", "--force"), &stdout, &stderr)
 
 	if code != exitFailure {
 		t.Fatalf("exit code = %d, want %d: --no must override --force (stderr: %s)", code, exitFailure, stderr.String())
@@ -163,12 +191,12 @@ func TestNoOverridesForce(t *testing.T) {
 	if fake.generationCalls != 0 {
 		t.Errorf("generation calls = %d, want none: the refusal precedes the request", fake.generationCalls)
 	}
-	assertUntouched(t, dir, marker)
+	assertUntouched(t, project, marker)
 }
 
 // TestNoGeneratesWhenNothingIsRefused covers the harmless cases: an empty
-// destination and a missing one are both non-destructive, so the run is an ordinary
-// one, still plain (US6.3).
+// location, a missing one and one that already holds somebody else's files all have
+// nothing to decline, so the run is an ordinary one, still plain (US6.3, VS8.2).
 func TestNoGeneratesWhenNothingIsRefused(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -184,6 +212,16 @@ func TestNoGeneratesWhenNothingIsRefused(t *testing.T) {
 			name: "missing directory",
 			prepare: func(t *testing.T) string {
 				return filepath.Join(t.TempDir(), "checkout")
+			},
+		},
+		{
+			name: "location full of other work",
+			prepare: func(t *testing.T) string {
+				location := t.TempDir()
+				if err := os.WriteFile(filepath.Join(location, "otro.txt"), []byte("not mine\n"), 0o644); err != nil {
+					t.Fatalf("seed location: %v", err)
+				}
+				return location
 			},
 		},
 	}
@@ -246,10 +284,10 @@ func TestNoNeverOpensTheWizard(t *testing.T) {
 func TestNoStillAllowsADryRun(t *testing.T) {
 	fake := newFakeInitializr(t)
 	pipeStdin(t)
-	dir, marker := seedOutput(t)
+	location, project, marker := seedOutput(t)
 
 	var stdout, stderr bytes.Buffer
-	code := run(fake.args("--dry-run", "--no", "--output", dir), &stdout, &stderr)
+	code := run(fake.args("--dry-run", "--no", "--output", location), &stdout, &stderr)
 
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitOK, stderr.String())
@@ -257,7 +295,7 @@ func TestNoStillAllowsADryRun(t *testing.T) {
 	if !strings.Contains(stdout.String(), "artifact-id=") {
 		t.Errorf("stdout = %q, want the resolved options", stdout.String())
 	}
-	assertUntouched(t, dir, marker)
+	assertUntouched(t, project, marker)
 }
 
 // TestHelpDocumentsYesAndNo is the documentation half: both flags have their own

@@ -19,17 +19,17 @@ func TestExtractIgnoresProcessUmask(t *testing.T) {
 	previous := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(previous) })
 
-	dest := t.TempDir()
-	if _, err := extract.Extract(testArchive(t), dest, false); err != nil {
+	project := filepath.Join(t.TempDir(), "proyecto1")
+	if _, err := extract.Extract(testArchive(t), project, false); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
 	cases := map[string]os.FileMode{
-		"demo/mvnw":    0o755,
-		"demo/pom.xml": 0o644,
+		"mvnw":    0o755,
+		"pom.xml": 0o644,
 	}
 	for path, want := range cases {
-		info, err := os.Stat(filepath.Join(dest, filepath.FromSlash(path)))
+		info, err := os.Stat(filepath.Join(project, filepath.FromSlash(path)))
 		if err != nil {
 			t.Fatalf("stat %s: %v", path, err)
 		}

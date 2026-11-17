@@ -73,14 +73,12 @@ func size(bytes int) string {
 // statement when the archive shipped none. The archive's top-level directory is the
 // project itself — the server names it after baseDir, which this tool sets to the
 // artifact id — so it is not repeated here (US6.2).
-func executables(files []string, artifactID string) string {
+// executables names the files the extraction made executable, as the archive
+// spells them relative to the project; the extraction already dropped the
+// archive's top directory (VS8.2).
+func executables(files []string) string {
 	if len(files) == 0 {
 		return "no executable files"
 	}
-
-	names := make([]string, 0, len(files))
-	for _, file := range files {
-		names = append(names, strings.TrimPrefix(file, artifactID+"/"))
-	}
-	return strings.Join(names, ", ")
+	return strings.Join(files, ", ")
 }

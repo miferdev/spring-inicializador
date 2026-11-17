@@ -210,13 +210,10 @@ func TestPermissionsReport(t *testing.T) {
 
 // TestReportHelpers pins the small formatting rules the report depends on.
 func TestReportHelpers(t *testing.T) {
-	if got, want := executables([]string{"demo/gradlew", "demo/mvnw"}, "demo"), "gradlew, mvnw"; got != want {
+	if got, want := executables([]string{"gradlew", "mvnw"}), "gradlew, mvnw"; got != want {
 		t.Errorf("executables = %q, want %q", got, want)
 	}
-	if got, want := executables([]string{"other/mvnw"}, "demo"), "other/mvnw"; got != want {
-		t.Errorf("executables = %q, want %q: only the project's own directory is trimmed", got, want)
-	}
-	if got, want := executables(nil, "demo"), "no executable files"; got != want {
+	if got, want := executables(nil), "no executable files"; got != want {
 		t.Errorf("executables = %q, want %q", got, want)
 	}
 

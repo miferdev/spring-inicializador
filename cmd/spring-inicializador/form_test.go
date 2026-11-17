@@ -134,11 +134,11 @@ func TestTheNameAndLocationReachTheRequestAndTheRun(t *testing.T) {
 				}
 			}
 
-			// --output is the parent the run writes into. The fake archive names its
-			// own top directory, which is what US8.2 renames; the report already
-			// names the project's folder.
-			if _, err := os.Stat(filepath.Join(output, "demo", "pom.xml")); err != nil {
-				t.Errorf("the project was not written under --output: %v", err)
+			// --output is the location and the name is the project's folder: the
+			// archive's own top directory is renamed to it, so there is no extra
+			// nesting (VS8.2).
+			if _, err := os.Stat(filepath.Join(output, "billing", "pom.xml")); err != nil {
+				t.Errorf("the project was not written into %s: %v", filepath.Join(output, "billing"), err)
 			}
 			if want := "Created " + filepath.Join(output, "billing"); !strings.Contains(stdout.String(), want) {
 				t.Errorf("stdout = %q, want it to name %q", stdout.String(), want)

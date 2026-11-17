@@ -1,6 +1,6 @@
 // Package extract writes an in-memory project archive to disk. It never
-// fetches: it receives bytes plus a destination directory, and it either leaves
-// a complete project behind or nothing at all.
+// fetches: it receives bytes plus the project's own directory, and it either
+// leaves a complete project behind or nothing at all.
 package extract
 
 import (
@@ -34,6 +34,10 @@ const (
 	// stagingPrefix names the temporary sibling directory an extraction is
 	// assembled in before it is renamed into place.
 	stagingPrefix = ".spring-inicializador-"
+
+	// stagingRoot stands in for the staging directory while only the archive's
+	// entry names are known; the escape check is pure path arithmetic.
+	stagingRoot = "staging"
 )
 
 // Result is what an extraction did: whether an existing destination was replaced,
@@ -46,76 +50,86 @@ type Result struct {
 	// Files is how many regular files were written.
 	Files int
 
-	// Executable names the files written with an executable bit, as the archive
-	// spells them ("demo/mvnw"), sorted. A Maven project ships mvnw, a Gradle one
+	// Executable names the files written with an executable bit, relative to the
+	// project directory ("mvnw"), sorted. A Maven project ships mvnw, a Gradle one
 	// gradlew; an archive may ship none.
 	Executable []string
 }
 
-// Occupied reports whether destDir exists and holds anything, which is the only
+// Occupied reports whether projectDir exists and holds anything, which is the only
 // situation Extract refuses without force. The command line asks the same question
 // before fetching, so a run that declines destructive actions refuses without
-// spending a request (US6.5).
-func Occupied(destDir string) (bool, error) {
-	exists, empty, err := dirState(destDir)
+// spending a request (US6.5, VS8.2).
+func Occupied(projectDir string) (bool, error) {
+	exists, empty, err := dirState(projectDir)
 	if err != nil {
-		return false, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
+		return false, fmt.Errorf("extract: inspecting %s: %w", projectDir, err)
 	}
 	return exists && !empty, nil
 }
 
-// Extract unpacks data into destDir, preserving the archive's top-level
-// directory (the server sends `demo/...`, so `--output .` yields `./demo`) and
-// each entry's stored permission bits, including the executable bit on mvnw and
-// gradlew.
+// Extract unpacks data into projectDir, the project's own directory: the
+// archive's single top-level directory (the server names it after baseDir) is
+// renamed to it, so a `demo/…` archive extracted to `proyecto1` yields
+// `proyecto1/pom.xml` and never `proyecto1/demo/pom.xml`. Each entry keeps its
+// stored permission bits, including the executable bit on mvnw and gradlew
+// (VS8.2).
 //
-// A destination that already exists and holds anything is refused unless force
-// is set; nothing is written before that check, so a refused run leaves the
-// existing directory exactly as it was. The result reports whether an existing
-// destination was replaced, which lets the caller say "overwrote" instead of
-// "created", and what was written, which lets it report the extraction and the
+// Only projectDir is measured: the directory it lives in is where the user keeps
+// their work and is never touched. A projectDir that already exists and holds
+// anything is refused unless force is set; nothing is written before that check,
+// so a refused run leaves the existing directory exactly as it was. The result
+// reports whether it was replaced, which lets the caller say "overwrote" instead
+// of "created", and what was written, which lets it report the extraction and the
 // permissions it applied (US6.2).
 //
-// The archive is assembled in a temporary sibling directory and renamed into
-// place only once every entry has been written, so a failure partway through
-// cannot leave a half-extracted project behind.
-func Extract(data []byte, destDir string, force bool) (Result, error) {
+// The archive is assembled in a temporary sibling directory of projectDir, and the
+// project directory is renamed out of it only once every entry has been written, so
+// a failure partway through leaves neither a half-extracted project nor a staging
+// directory behind.
+func Extract(data []byte, projectDir string, force bool) (Result, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return Result{}, fmt.Errorf("extract: opening archive: %w", err)
 	}
 
-	exists, empty, err := dirState(destDir)
+	// Both checks run on the archive's names, before a single directory exists: an
+	// escaping entry or a second root can only come from a hostile or broken archive.
+	if err := checkEntriesInside(reader.File); err != nil {
+		return Result{}, err
+	}
+	top, err := topLevel(reader.File)
 	if err != nil {
-		return Result{}, fmt.Errorf("extract: inspecting %s: %w", destDir, err)
+		return Result{}, err
+	}
+
+	exists, empty, err := dirState(projectDir)
+	if err != nil {
+		return Result{}, fmt.Errorf("extract: inspecting %s: %w", projectDir, err)
 	}
 	replacing := exists && !empty
 	if replacing && !force {
-		return Result{}, fmt.Errorf("extract: destination %s already exists and is not empty; pass --force to overwrite", destDir)
+		return Result{}, fmt.Errorf("extract: destination %s already exists and is not empty; pass --force to overwrite", projectDir)
 	}
 	if replacing {
-		if err := refuseUnsafeDestination(destDir); err != nil {
+		if err := refuseUnsafeDestination(projectDir); err != nil {
 			return Result{}, err
 		}
 	}
 
-	parent := filepath.Dir(destDir)
+	parent := filepath.Dir(projectDir)
 	if err := os.MkdirAll(parent, privateDirMode); err != nil {
-		return Result{}, fmt.Errorf("extract: creating parent of %s: %w", destDir, err)
+		return Result{}, fmt.Errorf("extract: creating parent of %s: %w", projectDir, err)
 	}
 
 	staging, err := os.MkdirTemp(parent, stagingPrefix)
 	if err != nil {
 		return Result{}, fmt.Errorf("extract: creating staging directory: %w", err)
 	}
-	// Until the rename succeeds, the staging directory is this function's
-	// problem; afterwards it belongs to the caller's destination.
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.RemoveAll(staging)
-		}
-	}()
+	// The project is renamed out of staging, so the shell that is left holds
+	// nothing: whether the extraction succeeds or fails, it is this function's to
+	// remove.
+	defer os.RemoveAll(staging)
 
 	result := Result{Replaced: replacing}
 	for _, file := range reader.File {
@@ -129,16 +143,82 @@ func Extract(data []byte, destDir string, force bool) (Result, error) {
 
 		result.Files++
 		if perm&0o111 != 0 {
-			result.Executable = append(result.Executable, file.Name)
+			result.Executable = append(result.Executable, strings.TrimPrefix(filepath.ToSlash(file.Name), top+"/"))
 		}
 	}
 	sort.Strings(result.Executable)
 
-	if err := adopt(staging, destDir, exists, replacing); err != nil {
+	unpacked := filepath.Join(staging, top)
+	info, err := os.Stat(unpacked)
+	if err != nil {
+		return Result{}, fmt.Errorf("extract: locating the project directory %q: %w", top, err)
+	}
+	if !info.IsDir() {
+		return Result{}, fmt.Errorf("extract: the archive's top-level entry %q is not a directory", top)
+	}
+
+	if err := adopt(unpacked, projectDir, exists, replacing); err != nil {
 		return Result{}, err
 	}
-	committed = true
 	return result, nil
+}
+
+// checkEntriesInside refuses an entry that would resolve above the directory it is
+// extracted into, like "../passwd" or "demo/../../x". It is the same check inside
+// applies per entry, run over the whole archive before anything is created.
+func checkEntriesInside(files []*zip.File) error {
+	for _, file := range files {
+		if _, err := inside(stagingRoot, file.Name); err != nil {
+			return fmt.Errorf("extract: %s: %w", file.Name, err)
+		}
+	}
+	return nil
+}
+
+// topLevel is the archive's single top-level entry: the project directory the
+// server names after baseDir. More than one root is refused instead of flattened,
+// because flattening would drop or merge somebody's files, and an archive without a
+// directory has nothing to rename (VS8.2).
+func topLevel(files []*zip.File) (string, error) {
+	seen := make(map[string]bool, 1)
+	for _, file := range files {
+		clean := cleanEntry(file.Name)
+		if clean == "" {
+			continue
+		}
+		top, _, _ := strings.Cut(clean, "/")
+		seen[top] = true
+	}
+
+	if len(seen) == 1 {
+		for top := range seen {
+			return top, nil
+		}
+	}
+	if len(seen) == 0 {
+		return "", fmt.Errorf("extract: the archive is empty")
+	}
+
+	names := make([]string, 0, len(seen))
+	for top := range seen {
+		names = append(names, top)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("extract: the archive has %d top-level entries (%s); refusing to flatten them into one project",
+		len(names), strings.Join(names, ", "))
+}
+
+// cleanEntry normalizes an archive entry name to slash-separated form without a
+// leading "./", so the top-level entry can be read by eye and compared.
+func cleanEntry(name string) string {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(name)))
+	for strings.HasPrefix(clean, "./") {
+		clean = strings.TrimPrefix(clean, "./")
+	}
+	if clean == "." {
+		return ""
+	}
+	return clean
 }
 
 // adopt moves the finished staging directory into destDir. An empty destination
