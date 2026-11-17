@@ -22,8 +22,8 @@ func stubOutcome(t *testing.T, outcome tui.Outcome) {
 	t.Helper()
 
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, tui.Outcome, error) {
-		return options.Defaults(cat), outcome, nil
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, string, tui.Outcome, error) {
+		return options.Defaults(cat), stubLocation(provided), outcome, nil
 	}
 	t.Cleanup(func() { runForm = original })
 }
@@ -85,10 +85,10 @@ func TestCtrlCEndToEnd(t *testing.T) {
 	terminalStdout(t)
 
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, tui.Outcome, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, string, tui.Outcome, error) {
 		// The wizard's own output goes to the terminal it would have; the report
 		// stream below is what a script captures, and it must stay clean.
-		return tui.Run(cat, provided, dependencies, settings, destination, strings.NewReader("\x03"), io.Discard)
+		return tui.Run(cat, provided, dependencies, settings, strings.NewReader("\x03"), io.Discard)
 	}
 	t.Cleanup(func() { runForm = original })
 

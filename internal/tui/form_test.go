@@ -74,9 +74,9 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 		key   Key
 		label string
 	}{
-		{KeyGroupID, "Group"},
-		{KeyArtifactID, "Artifact"},
 		{KeyName, "Name"},
+		{KeyLocation, "Location"},
+		{KeyGroupID, "Group"},
 		{KeyPackageName, "Package"},
 		{KeyBuild, "Build"},
 		{KeyLanguage, "Language"},
@@ -103,7 +103,7 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 		}
 	}
 
-	for _, key := range []Key{KeyGroupID, KeyArtifactID, KeyName, KeyPackageName} {
+	for _, key := range []Key{KeyName, KeyLocation, KeyGroupID, KeyPackageName} {
 		f := fieldByKey(t, form.fields, key)
 		if f.kind != fieldText {
 			t.Errorf("field %q kind = %d, want a text field", key, f.kind)
@@ -211,17 +211,25 @@ func TestFormDefaults(t *testing.T) {
 	if state.GroupID != cat.Text["groupId"] {
 		t.Errorf("GroupID = %q, want %q", state.GroupID, cat.Text["groupId"])
 	}
-	if state.ArtifactID != cat.Text["artifactId"] {
-		t.Errorf("ArtifactID = %q, want %q", state.ArtifactID, cat.Text["artifactId"])
-	}
 	if state.PackageName != cat.Text["packageName"] {
 		t.Errorf("PackageName = %q, want %q", state.PackageName, cat.Text["packageName"])
 	}
 	if cat.Text["name"] != "" {
 		t.Fatalf("fixture now publishes a name default %q; the fallback below needs rethinking", cat.Text["name"])
 	}
-	if state.Name != state.ArtifactID {
-		t.Errorf("Name = %q, want the derived %q", state.Name, state.ArtifactID)
+	if state.Name != cat.Text["artifactId"] {
+		t.Errorf("Name = %q, want the metadata artifact id %q", state.Name, cat.Text["artifactId"])
+	}
+
+	// The location starts where --output starts: the current directory.
+	if state.Location != locationDefault {
+		t.Errorf("Location = %q, want %q", state.Location, locationDefault)
+	}
+
+	// The name is the single source: the request's artifact id is the same value.
+	opts := optionsFromState(cat, state)
+	if opts.ArtifactID != state.Name || opts.Name != state.Name {
+		t.Errorf("options name = (%q, %q), want both %q", opts.ArtifactID, opts.Name, state.Name)
 	}
 }
 

@@ -1,10 +1,10 @@
 package tui
 
-// Tests for US7.1: the form is three sections and one is on screen at a time.
-// Identity → Build → Versions, enter walks forward across the section boundaries
-// and esc walks back across them, and the frame says which section it is and how
-// many there are. The model is driven with the messages the event loop delivers,
-// so no test needs a terminal.
+// Tests for US7.1: the form is a sequence of sections and one is on screen at a
+// time. Project → Details → Build → Versions, enter walks forward across the
+// section boundaries and esc walks back across them, and the frame says which
+// section it is and how many there are. The model is driven with the messages the
+// event loop delivers, so no test needs a terminal.
 
 import (
 	"strings"
@@ -70,16 +70,18 @@ func assertFitsEighty(t *testing.T, view string) {
 	}
 }
 
-// TestTheFormShowsThreeSectionsInOrder pins the split: every row the form asks
-// belongs to exactly one section, and the sections are Identity, Build, Versions.
-func TestTheFormShowsThreeSectionsInOrder(t *testing.T) {
+// TestTheFormShowsFourSectionsInOrder pins the split: every row the form asks
+// belongs to exactly one section, and the sections are Project, Details, Build and
+// Versions.
+func TestTheFormShowsFourSectionsInOrder(t *testing.T) {
 	form := newProjectForm(fixtureCatalog(t), nil, Default())
 
 	want := []struct {
 		name string
 		keys []Key
 	}{
-		{"Identity", []Key{KeyGroupID, KeyArtifactID, KeyName, KeyPackageName}},
+		{"Project", []Key{KeyName, KeyLocation}},
+		{"Details", []Key{KeyGroupID, KeyPackageName}},
 		{"Build", []Key{KeyBuild, KeyLanguage, KeyPackaging}},
 		{"Versions", []Key{KeyJavaVersion, KeyBootVersion}},
 	}
@@ -129,27 +131,27 @@ func TestTheFormShowsThreeSectionsInOrder(t *testing.T) {
 	}
 }
 
-// TestEnterOnIdentitysLastRowOpensBuild is the crossing this story adds: the last
+// TestEnterOnProjectsLastRowOpensDetails is the crossing this story adds: the last
 // row of a section moves to the next section instead of finishing the form.
-func TestEnterOnIdentitysLastRowOpensBuild(t *testing.T) {
+func TestEnterOnProjectsLastRowOpensDetails(t *testing.T) {
 	h := newSizedHarness(t, 80, 24)
 
-	if got := frameTitle(h.model.View()); got != "Identity 1/3" {
-		t.Fatalf("frame starts with %q, want %q", got, "Identity 1/3")
+	if got := frameTitle(h.model.View()); got != "Project 1/4" {
+		t.Fatalf("frame starts with %q, want %q", got, "Project 1/4")
 	}
 
-	h.walkTo(KeyPackageName)
-	if got := h.focused(); got != KeyPackageName {
-		t.Fatalf("focus = %q, want Identity's last row %q", got, KeyPackageName)
+	h.walkTo(KeyLocation)
+	if got := h.focused(); got != KeyLocation {
+		t.Fatalf("focus = %q, want Project's last row %q", got, KeyLocation)
 	}
 
 	h.press(tea.KeyEnter)
 
-	if got := h.focused(); got != KeyBuild {
-		t.Errorf("focus after enter on Identity's last row = %q, want Build's first row %q", got, KeyBuild)
+	if got := h.focused(); got != KeyGroupID {
+		t.Errorf("focus after enter on Project's last row = %q, want Details' first row %q", got, KeyGroupID)
 	}
-	if got := frameTitle(h.model.View()); got != "Build 2/3" {
-		t.Errorf("frame starts with %q after enter, want %q", got, "Build 2/3")
+	if got := frameTitle(h.model.View()); got != "Details 2/4" {
+		t.Errorf("frame starts with %q after enter, want %q", got, "Details 2/4")
 	}
 	if h.model.screen != screenProject {
 		t.Errorf("screen = %v after enter inside the form, want the project form", h.model.screen)
@@ -162,6 +164,8 @@ func TestEnterOnIdentitysLastRowOpensBuild(t *testing.T) {
 func TestEnterOnVersionsLastRowOpensTheDependencies(t *testing.T) {
 	h := newSizedHarness(t, 80, 24)
 
+	h.walkTo(KeyLocation)
+	h.press(tea.KeyEnter)
 	h.walkTo(KeyPackageName)
 	h.press(tea.KeyEnter)
 	h.walkTo(KeyPackaging)
@@ -188,8 +192,9 @@ func TestEscOnASectionsFirstRowGoesBack(t *testing.T) {
 		want      Key // the previous section's last row
 		wantTitle string
 	}{
-		{name: "Build to Identity", leave: KeyBuild, want: KeyPackageName, wantTitle: "Identity 1/3"},
-		{name: "Versions to Build", leave: KeyJavaVersion, want: KeyPackaging, wantTitle: "Build 2/3"},
+		{name: "Details to Project", leave: KeyGroupID, want: KeyLocation, wantTitle: "Project 1/4"},
+		{name: "Build to Details", leave: KeyBuild, want: KeyPackageName, wantTitle: "Details 2/4"},
+		{name: "Versions to Build", leave: KeyJavaVersion, want: KeyPackaging, wantTitle: "Build 3/4"},
 	}
 
 	for _, tc := range cases {
@@ -216,9 +221,10 @@ func TestEscOnASectionsFirstRowGoesBack(t *testing.T) {
 	}
 }
 
-// TestEscOnIdentitysFirstRowStillLeaves is the carried-over abort: the first row
-// of the first section has nowhere to go back to, so esc leaves without writing.
-func TestEscOnIdentitysFirstRowStillLeaves(t *testing.T) {
+// TestEscOnTheFirstSectionsFirstRowStillLeaves is the carried-over abort: the first
+// row of the first section has nowhere to go back to, so esc leaves without
+// writing.
+func TestEscOnTheFirstSectionsFirstRowStillLeaves(t *testing.T) {
 	h := newSizedHarness(t, 80, 24)
 	before := h.model.project.state
 
@@ -230,7 +236,7 @@ func TestEscOnIdentitysFirstRowStillLeaves(t *testing.T) {
 		t.Fatalf("Update returned %T, want tui.model", next)
 	}
 	if left.outcome != Left {
-		t.Errorf("outcome = %v after esc on Identity's first row, want %v", left.outcome, Left)
+		t.Errorf("outcome = %v after esc on the first row, want %v", left.outcome, Left)
 	}
 	if cmd == nil {
 		t.Fatal("esc on the first row produced no command; the program would keep running")
@@ -248,12 +254,12 @@ func TestEscOnIdentitysFirstRowStillLeaves(t *testing.T) {
 
 // TestTheSectionCounterIsRightAtEachStep walks the whole form and checks the
 // header of every section, and that no frame is wider than the terminal. Nothing is
-// answered here, so the counter still names all three sections (US7.2 covers the
-// answered ones).
+// answered here, so the counter names all four sections (US7.2 covers the answered
+// ones).
 func TestTheSectionCounterIsRightAtEachStep(t *testing.T) {
 	h := newSizedHarness(t, 80, 24)
 
-	titles := []string{"Identity 1/3", "Build 2/3", "Versions 3/3"}
+	titles := []string{"Project 1/4", "Details 2/4", "Build 3/4", "Versions 4/4"}
 	sections := h.model.project.sections
 	for i, title := range titles {
 		if got := frameTitle(h.model.View()); got != title {
@@ -274,24 +280,25 @@ func TestTheSectionCounterIsRightAtEachStep(t *testing.T) {
 }
 
 // TestPackageDerivationSurvivesSectionChanges is the derivation rule across the
-// new boundaries: leaving a section and coming back must not re-arm it, and an
+// section boundaries: leaving a section and coming back must not re-arm it, and an
 // edit must keep winning wherever it happened.
 func TestPackageDerivationSurvivesSectionChanges(t *testing.T) {
 	t.Run("an untouched package follows the identifiers", func(t *testing.T) {
 		h := newSizedHarness(t, 80, 24)
 
 		h.typeText("acme.")
-		h.walkTo(KeyArtifactID)
-		h.typeText("billing")
+		h.walkTo(KeyGroupID)
+		h.typeText("corp.")
 
-		derived := func() string {
-			return options.DerivePackageName(h.model.project.state.GroupID, h.model.project.state.ArtifactID)
+		derivedPackage := func() string {
+			state := h.model.project.state
+			return options.DerivePackageName(state.GroupID, state.Name)
 		}
-		if got, want := h.model.project.state.PackageName, derived(); got != want {
+		if got, want := h.model.project.state.PackageName, derivedPackage(); got != want {
 			t.Fatalf("PackageName = %q, want the derived %q", got, want)
 		}
 
-		// Out of Identity, then back in: the package did not stop following.
+		// Out of Details, then back in: the package did not stop following.
 		h.walkTo(KeyPackageName)
 		h.press(tea.KeyEnter)
 		if got := h.focused(); got != KeyBuild {
@@ -305,10 +312,10 @@ func TestPackageDerivationSurvivesSectionChanges(t *testing.T) {
 			t.Fatal("the section round trip left the derivation off; it should still be on")
 		}
 
-		h.walkBackTo(KeyArtifactID)
+		h.walkBackTo(KeyName)
 		h.typeText("x")
-		if got, want := h.model.project.state.PackageName, derived(); got != want {
-			t.Errorf("PackageName = %q after the artifact changed, want the derived %q", got, want)
+		if got, want := h.model.project.state.PackageName, derivedPackage(); got != want {
+			t.Errorf("PackageName = %q after the name changed, want the derived %q", got, want)
 		}
 	})
 
@@ -332,10 +339,10 @@ func TestPackageDerivationSurvivesSectionChanges(t *testing.T) {
 			t.Error("the section round trip re-armed the derivation")
 		}
 
-		h.walkBackTo(KeyArtifactID)
+		h.walkBackTo(KeyName)
 		h.typeText("y")
 		if got := h.model.project.state.PackageName; got != edited {
-			t.Errorf("PackageName = %q after the artifact changed, want the human value %q", got, edited)
+			t.Errorf("PackageName = %q after the name changed, want the human value %q", got, edited)
 		}
 	})
 }

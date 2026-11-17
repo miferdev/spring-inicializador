@@ -8,7 +8,7 @@ Language      Java
 Java          17
 Packaging     Jar
 Deps          web, data-jpa
-Destination   .
+Destination   demo
 
 [ Generate ]
 enter generate  esc back

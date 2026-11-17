@@ -44,7 +44,7 @@ func TestPackageFollowsIdentifiers(t *testing.T) {
 		t.Errorf("after the group: PackageName = %q, want %q", state.PackageName, want)
 	}
 
-	state.ArtifactID = "billing"
+	state.Name = "billing"
 	state.followPackage()
 	want := options.DerivePackageName("com.acme", "billing")
 	if want != "com.acme.billing" {
@@ -58,7 +58,7 @@ func TestPackageFollowsIdentifiers(t *testing.T) {
 	}
 
 	// A second artifact change must re-derive again, not freeze on the first.
-	state.ArtifactID = "ledger"
+	state.Name = "ledger"
 	state.followPackage()
 	if want := options.DerivePackageName("com.acme", "ledger"); state.PackageName != want {
 		t.Errorf("after the second artifact change: PackageName = %q, want %q", state.PackageName, want)
@@ -82,7 +82,7 @@ func TestHumanEditWins(t *testing.T) {
 	}
 
 	state.GroupID = "com.acme"
-	state.ArtifactID = "billing"
+	state.Name = "billing"
 	state.followPackage()
 
 	if state.PackageName != "org.custom" {
@@ -111,7 +111,7 @@ func TestClearingResumesDerivation(t *testing.T) {
 		t.Errorf("marker = %q, want %q after resuming", state.packageMarker(), autoMarker)
 	}
 
-	state.ArtifactID = "ledger"
+	state.Name = "ledger"
 	state.followPackage()
 
 	want := options.DerivePackageName(state.GroupID, "ledger")
@@ -129,10 +129,10 @@ func TestFormModelTypingIntoPackageStopsDerivation(t *testing.T) {
 	model := newTestModel(t)
 
 	// huh advances rows only through its own next-field message, which is what a
-	// tab press produces: Group, Artifact, Name, then the package field.
+	// tab press produces: Name, Location, Group, then the package field. The step
+	// into Details is the one that comes back as a command.
 	for range 3 {
-		next, _ := model.Update(huh.NextField())
-		model = next.(formModel)
+		model = applyAll(t, model, huh.NextField())
 	}
 
 	before := model.state.PackageName
@@ -167,22 +167,20 @@ func TestDerivedValueSurvivesFocusChanges(t *testing.T) {
 	model := newTestModel(t)
 
 	// Walk forward and back over the rows so the package input has been blurred
-	// and focused the way navigation does, then land on the group row.
+	// and focused the way navigation does, then land on the first row, the name.
 	for range 3 {
-		next, _ := model.Update(huh.NextField())
-		model = next.(formModel)
+		model = applyAll(t, model, huh.NextField())
 	}
 	for range 3 {
-		next, _ := model.Update(huh.PrevField())
-		model = next.(formModel)
+		model = applyAll(t, model, huh.PrevField())
 	}
 
-	// Typing into the group row derives the package; the model, not this test,
+	// Typing into the name row derives the package; the model, not this test,
 	// must push that value into the package input.
 	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	model = next.(formModel)
 
-	want := options.DerivePackageName(model.state.GroupID, model.state.ArtifactID)
+	want := options.DerivePackageName(model.state.GroupID, model.state.Name)
 	if model.state.PackageName != want {
 		t.Fatalf("PackageName = %q, want the derived %q", model.state.PackageName, want)
 	}

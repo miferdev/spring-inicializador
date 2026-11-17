@@ -62,7 +62,7 @@ func newSizedHarnessWith(t *testing.T, width, height int, provided Values, depen
 	t.Helper()
 
 	cat := fixtureCatalog(t)
-	root := newModel(cat, newProjectForm(cat, provided, Default()), dependencies, Default(), ".")
+	root := newModel(cat, newProjectForm(cat, provided, Default()), dependencies, Default())
 	root.deps.list.FilterInput.Cursor.SetMode(cursor.CursorStatic)
 
 	next, _ := root.Update(tea.WindowSizeMsg{Width: width, Height: height})
@@ -171,10 +171,17 @@ func (h *harness) focused() Key {
 }
 
 // toLastRow moves the focus to the last row the form asks, using huh's own
-// navigation message.
+// navigation message. It walks from wherever the focus is, because a test may have
+// edited a row before asking for the dependency pane.
 func (h *harness) toLastRow() {
 	h.t.Helper()
-	for range askedRows(h.model.project.fields) - 1 {
+
+	fields := h.model.project.fields
+	last := fields[len(fields)-1].key
+	for guard := 0; h.focused() != last; guard++ {
+		if guard > askedRows(fields)+1 {
+			h.t.Fatalf("never reached the last row; focus is %q", h.focused())
+		}
 		h.send(huh.NextField())
 	}
 }
@@ -229,7 +236,8 @@ func TestEscFromTheDependenciesKeepsEveryAnswer(t *testing.T) {
 	h := newHarness(t)
 
 	// Edit an identifier by hand, the way a person would, and let the package
-	// field derive from it.
+	// field derive from it. The group is the third row now.
+	h.walkTo(KeyGroupID)
 	h.typeText("corp")
 	before := optionsFromState(h.cat, h.model.project.state)
 	if before.GroupID == options.Defaults(h.cat).GroupID {
@@ -255,9 +263,10 @@ func TestEscFromTheDependenciesKeepsEveryAnswer(t *testing.T) {
 		t.Errorf("options after the round trip = %+v, want the values before %+v", after, before)
 	}
 
-	// The form is rendered again, not left blank by the finished huh form.
+	// The form is rendered again, not left blank by the finished huh form: the
+	// first section is the one that carries the project's name (VS8).
 	view := h.model.View()
-	if !strings.Contains(view, "Group") || !strings.Contains(view, before.GroupID) {
+	if !strings.Contains(view, "Name") || !strings.Contains(view, before.Name) {
 		t.Errorf("the form did not come back with its values; view:\n%s", view)
 	}
 

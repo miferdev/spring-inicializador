@@ -19,9 +19,14 @@ import (
 type Key string
 
 const (
+	// KeyName is the project's name, and the single source for the artifact id the
+	// server receives and the folder the project lands in (VS8).
+	KeyName Key = "name"
+
+	// KeyLocation is the parent directory of the generated project, never part of
+	// the request: the server has no idea where a client writes (VS8).
+	KeyLocation    Key = "location"
 	KeyGroupID     Key = "groupId"
-	KeyArtifactID  Key = "artifactId"
-	KeyName        Key = "name"
 	KeyPackageName Key = "packageName"
 	KeyBuild       Key = "build"
 	KeyLanguage    Key = "language"
@@ -69,9 +74,9 @@ type field struct {
 // formState is the value of every row of the form. The widgets edit it in
 // place and optionsFromState is the only consumer.
 type formState struct {
-	GroupID     string
-	ArtifactID  string
 	Name        string
+	Location    string
+	GroupID     string
 	PackageName string
 	Build       string
 	Language    string
@@ -79,7 +84,7 @@ type formState struct {
 	JavaVersion string
 	BootVersion string
 
-	// The package field follows group and artifact until a human edits it.
+	// The package field follows the group and the project name until a human edits it.
 	// packageAuto says whether it still does, and derivedPackage is the last
 	// value derivation wrote: comparing the field against it is how an edit is
 	// detected, since huh emits no per-field change event.
@@ -111,7 +116,8 @@ var sectionKeys = []struct {
 	name string
 	keys []Key
 }{
-	{name: "Identity", keys: []Key{KeyGroupID, KeyArtifactID, KeyName, KeyPackageName}},
+	{name: "Project", keys: []Key{KeyName, KeyLocation}},
+	{name: "Details", keys: []Key{KeyGroupID, KeyPackageName}},
 	{name: "Build", keys: []Key{KeyBuild, KeyLanguage, KeyPackaging}},
 	{name: "Versions", keys: []Key{KeyJavaVersion, KeyBootVersion}},
 }
@@ -217,11 +223,11 @@ func newProjectForm(cat *catalog.Catalog, provided Values, theme Theme) *project
 		// human types something else, the field follows group and artifact.
 		form.state.armPackage()
 
-		// Identifiers that came from flags are already typed as far as the form
-		// is concerned, so the first frame shows the name they derive.
+		// The identifiers that came from flags are already typed as far as the form
+		// is concerned, so the first frame shows the package they derive.
 		_, group := provided[KeyGroupID]
-		_, artifact := provided[KeyArtifactID]
-		if group || artifact {
+		_, name := provided[KeyName]
+		if group || name {
 			form.state.followPackage()
 		}
 	}
@@ -278,6 +284,10 @@ func firstAskedKey(fields []field) Key {
 	return ""
 }
 
+// locationDefault is the parent directory a project goes into when nobody says
+// otherwise: the current one, the same value the --output flag defaults to.
+const locationDefault = "."
+
 // buildFields describes the project form in display order, skipping the rows the
 // command line already answered. Every offering comes from the catalog, so a
 // server that stops publishing a value stops offering it: no option value is
@@ -291,9 +301,9 @@ func buildFields(cat *catalog.Catalog, provided Values) []field {
 
 	defaults := options.Defaults(cat)
 	all := []field{
-		textField(KeyGroupID, "Group", defaults.GroupID),
-		textField(KeyArtifactID, "Artifact", defaults.ArtifactID),
 		textField(KeyName, "Name", defaults.Name),
+		textField(KeyLocation, "Location", locationDefault),
+		textField(KeyGroupID, "Group", defaults.GroupID),
 		textField(KeyPackageName, "Package", defaults.PackageName),
 		selectField(KeyBuild, "Build", buildChoices(cat), options.BuildMaven),
 		selectField(KeyLanguage, "Language", catalogChoices(cat.Language), cat.Language.Default),
@@ -388,9 +398,9 @@ func catalogChoices(sel catalog.Select) []choice {
 // line here and nothing else.
 func (s *formState) pointers() map[Key]*string {
 	return map[Key]*string{
-		KeyGroupID:     &s.GroupID,
-		KeyArtifactID:  &s.ArtifactID,
 		KeyName:        &s.Name,
+		KeyLocation:    &s.Location,
+		KeyGroupID:     &s.GroupID,
 		KeyPackageName: &s.PackageName,
 		KeyBuild:       &s.Build,
 		KeyLanguage:    &s.Language,
@@ -409,10 +419,10 @@ func (s *formState) armPackage() {
 
 // followPackage repeats the package derivation after a form update. huh emits no
 // "this field was edited" event, so an edit is detected by comparison: while the
-// field still holds the value derivation last wrote, group and artifact keep
-// winning; anything else means a human typed, and derivation stops for the rest
-// of the session. An empty field re-arms it and is filled again immediately, so
-// an empty package name never reaches the request.
+// field still holds the value derivation last wrote, the group and the project name
+// keep winning; anything else means a human typed, and derivation stops for the rest
+// of the session. An empty field re-arms it and is filled again immediately, so an
+// empty package name never reaches the request.
 //
 // It reports whether it wrote a new value, because huh's input owns a second
 // copy of the text and has to be resynchronised when that happens.
@@ -427,7 +437,7 @@ func (s *formState) followPackage() bool {
 		return false
 	}
 
-	derived := options.DerivePackageName(s.GroupID, s.ArtifactID)
+	derived := options.DerivePackageName(s.GroupID, s.Name)
 	if derived == s.PackageName {
 		return false
 	}
@@ -516,9 +526,11 @@ func (f field) widget(value *string) huh.Field {
 func optionsFromState(cat *catalog.Catalog, state formState) options.Options {
 	opts := options.Defaults(cat)
 
-	opts.GroupID = state.GroupID
-	opts.ArtifactID = state.ArtifactID
+	// The name is the single source: the artifact id the server receives and the
+	// folder the project lands in both follow it (VS8).
+	opts.ArtifactID = state.Name
 	opts.Name = state.Name
+	opts.GroupID = state.GroupID
 	opts.PackageName = state.PackageName
 	opts.Build = state.Build
 	opts.Language = state.Language

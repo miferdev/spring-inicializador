@@ -223,9 +223,9 @@ func TestNoNeverOpensTheWizard(t *testing.T) {
 
 	formCalls := 0
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, tui.Outcome, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, string, tui.Outcome, error) {
 		formCalls++
-		return tui.Run(cat, provided, dependencies, settings, destination, stdin, stdout)
+		return tui.Run(cat, provided, dependencies, settings, stdin, stdout)
 	}
 	t.Cleanup(func() { runForm = original })
 

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -98,28 +99,79 @@ func TestRunNonTerminalStdinSkipsForm(t *testing.T) {
 	assertNoANSI(t, stdout.String())
 }
 
+// TestTheNameAndLocationReachTheRequestAndTheRun is the flag half of VS8.1: --name
+// (or its alias --artifact-id) is the project's single name, and --output is the
+// parent directory the run writes into.
+func TestTheNameAndLocationReachTheRequestAndTheRun(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "name", args: []string{"--name", "billing"}},
+		{name: "artifact-id alias", args: []string{"--artifact-id", "billing"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeInitializr(t)
+			pipeStdin(t)
+			output := t.TempDir()
+
+			args := append([]string{"--deps", "web", "--output", output, "--yes"}, tc.args...)
+			var stdout, stderr bytes.Buffer
+			if code := run(fake.args(args...), &stdout, &stderr); code != exitOK {
+				t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitOK, stderr.String())
+			}
+
+			form := fake.generationForm
+			for field, want := range map[string]string{
+				"artifactId": "billing",
+				"name":       "billing",
+				"baseDir":    "billing",
+			} {
+				if got := form.Get(field); got != want {
+					t.Errorf("%s = %q, want %q: the name is the single source", field, got, want)
+				}
+			}
+
+			// --output is the parent the run writes into. The fake archive names its
+			// own top directory, which is what US8.2 renames; the report already
+			// names the project's folder.
+			if _, err := os.Stat(filepath.Join(output, "demo", "pom.xml")); err != nil {
+				t.Errorf("the project was not written under --output: %v", err)
+			}
+			if want := "Created " + filepath.Join(output, "billing"); !strings.Contains(stdout.String(), want) {
+				t.Errorf("stdout = %q, want it to name %q", stdout.String(), want)
+			}
+		})
+	}
+}
+
 // TestProvidedByFlags pins the flag-to-row mapping the form uses: every project
 // flag answers exactly one row, and --deps answers none because the dependency
-// pane belongs to VS3.
+// pane belongs to VS3. --artifact-id is an alias of --name (VS8), so the table
+// names its row by hand.
 func TestProvidedByFlags(t *testing.T) {
 	cases := []struct {
+		name  string
 		args  []string
 		key   tui.Key
 		value string
 	}{
-		{[]string{"--group-id", "com.acme"}, tui.KeyGroupID, "com.acme"},
-		{[]string{"--artifact-id", "billing"}, tui.KeyArtifactID, "billing"},
-		{[]string{"--name", "billing"}, tui.KeyName, "billing"},
-		{[]string{"--package-name", "org.custom"}, tui.KeyPackageName, "org.custom"},
-		{[]string{"--build", "gradle"}, tui.KeyBuild, "gradle"},
-		{[]string{"--language", "kotlin"}, tui.KeyLanguage, "kotlin"},
-		{[]string{"--packaging", "war"}, tui.KeyPackaging, "war"},
-		{[]string{"--java", "21"}, tui.KeyJavaVersion, "21"},
-		{[]string{"--boot-version", "4.0.9.RELEASE"}, tui.KeyBootVersion, "4.0.9.RELEASE"},
+		{name: "group-id", args: []string{"--group-id", "com.acme"}, key: tui.KeyGroupID, value: "com.acme"},
+		{name: "artifact-id", args: []string{"--artifact-id", "billing"}, key: tui.KeyName, value: "billing"},
+		{name: "name", args: []string{"--name", "billing"}, key: tui.KeyName, value: "billing"},
+		{name: "output", args: []string{"--output", "/tmp/out"}, key: tui.KeyLocation, value: "/tmp/out"},
+		{name: "package-name", args: []string{"--package-name", "org.custom"}, key: tui.KeyPackageName, value: "org.custom"},
+		{name: "build", args: []string{"--build", "gradle"}, key: tui.KeyBuild, value: "gradle"},
+		{name: "language", args: []string{"--language", "kotlin"}, key: tui.KeyLanguage, value: "kotlin"},
+		{name: "packaging", args: []string{"--packaging", "war"}, key: tui.KeyPackaging, value: "war"},
+		{name: "java", args: []string{"--java", "21"}, key: tui.KeyJavaVersion, value: "21"},
+		{name: "boot-version", args: []string{"--boot-version", "4.0.9.RELEASE"}, key: tui.KeyBootVersion, value: "4.0.9.RELEASE"},
 	}
 
 	for _, tc := range cases {
-		t.Run(string(tc.key), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			flags, cmd := newFlagSet(io.Discard)
 			if err := flags.Parse(tc.args); err != nil {
 				t.Fatalf("Parse(%v): %v", tc.args, err)
@@ -134,6 +186,18 @@ func TestProvidedByFlags(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("name wins over artifact-id", func(t *testing.T) {
+		flags, cmd := newFlagSet(io.Discard)
+		if err := flags.Parse([]string{"--artifact-id", "ident", "--name", "human"}); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+
+		provided := providedByFlags(cmd, passedFlags(flags))
+		if got := provided[tui.KeyName]; got != "human" {
+			t.Errorf("provided[name] = %q, want the --name value human", got)
+		}
+	})
 
 	t.Run("deps answers no row", func(t *testing.T) {
 		flags, cmd := newFlagSet(io.Discard)

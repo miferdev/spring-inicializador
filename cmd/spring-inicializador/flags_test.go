@@ -146,6 +146,16 @@ func terminalStdout(t *testing.T) {
 	t.Cleanup(func() { interactiveStdout = original })
 }
 
+// stubLocation is the location a stubbed wizard reports: the row --output answered,
+// or the default the form would have started from. A stub that returned "" would
+// send the extraction into the current directory.
+func stubLocation(provided tui.Values) string {
+	if location, ok := provided[tui.KeyLocation]; ok {
+		return location
+	}
+	return "."
+}
+
 func terminalStdin(t *testing.T) {
 	t.Helper()
 
@@ -162,9 +172,9 @@ func TestAllProjectFlagsNeverOpenTheForm(t *testing.T) {
 
 	formCalls := 0
 	original := runForm
-	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, tui.Outcome, error) {
+	runForm = func(cat *catalog.Catalog, provided tui.Values, dependencies []string, settings tui.Settings, stdin io.Reader, stdout io.Writer) (options.Options, string, tui.Outcome, error) {
 		formCalls++
-		return tui.Run(cat, provided, dependencies, settings, destination, stdin, stdout)
+		return tui.Run(cat, provided, dependencies, settings, stdin, stdout)
 	}
 	t.Cleanup(func() { runForm = original })
 

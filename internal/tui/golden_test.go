@@ -80,7 +80,7 @@ func TestGoldenReviewFrames(t *testing.T) {
 	} {
 		t.Run(size.name, func(t *testing.T) {
 			// The default answers plus two dependencies: a state the flags can reach.
-			wizard := reviewScreen(t, size.width, size.height, nil, []string{"web", "data-jpa"}, ".")
+			wizard := reviewScreen(t, size.width, size.height, nil, []string{"web", "data-jpa"})
 			wizard.screen = screenReview
 
 			compareGolden(t, filepath.Join("testdata", "review-"+size.name+".golden"), wizard.View(), Default().Border)
@@ -89,9 +89,9 @@ func TestGoldenReviewFrames(t *testing.T) {
 }
 
 // TestGoldenFormSections pins each section of the project form at both sizes: one
-// page at a time, with its header, and the hint bar huh draws under it. The three
-// sections are the whole form (US7.1, US7.2); the frames are the reason the screen
-// fits a 24-row terminal (US7.3).
+// page at a time, with its header and the hint line the form draws itself. The four
+// sections are the whole form (US7.1, US7.2, VS8); the frames are the reason the
+// screen fits a 24-row terminal (US7.3).
 //
 // Rewrite them with:
 //
@@ -101,9 +101,10 @@ func TestGoldenFormSections(t *testing.T) {
 		name    string
 		section int
 	}{
-		{name: "identity", section: 0},
-		{name: "build", section: 1},
-		{name: "versions", section: 2},
+		{name: "project", section: 0},
+		{name: "details", section: 1},
+		{name: "build", section: 2},
+		{name: "versions", section: 3},
 	}
 
 	for _, size := range []struct {

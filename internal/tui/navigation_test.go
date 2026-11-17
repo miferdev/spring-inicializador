@@ -56,12 +56,37 @@ func escKey() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyEsc}
 }
 
+// applyAll sends one message and then every message its command produced, the way
+// the event loop does. A step inside a section moves the focus synchronously; a step
+// across a section boundary comes back as a command, and only this helper delivers
+// it.
+func applyAll(t *testing.T, model formModel, msg tea.Msg) formModel {
+	t.Helper()
+
+	queue := []tea.Msg{msg}
+	for steps := 0; len(queue) > 0; steps++ {
+		if steps > 20 {
+			t.Fatal("the form kept producing messages; check for a loop")
+		}
+
+		next, cmd := model.Update(queue[0])
+		updated, ok := next.(formModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want formModel", next)
+		}
+		model = updated
+		queue = queue[1:]
+		queue = append(queue, commandMessages(cmd)...)
+	}
+	return model
+}
+
 // TestEscOnFirstFieldAborts proves there is nothing before the first row to go
 // back to, so esc leaves the form aborted with every value untouched.
 func TestEscOnFirstFieldAborts(t *testing.T) {
 	model := newTestModel(t)
-	if got := focusKey(model); got != KeyGroupID {
-		t.Fatalf("focus = %q, want the first row %q", got, KeyGroupID)
+	if got := focusKey(model); got != KeyName {
+		t.Fatalf("focus = %q, want the first row %q", got, KeyName)
 	}
 
 	before := model.state
@@ -92,7 +117,7 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, outcome, err := Run(cat, nil, nil, Settings{}, ".", strings.NewReader("\x1b"), &stdout)
+		opts, _, outcome, err := Run(cat, nil, nil, Settings{}, strings.NewReader("\x1b"), &stdout)
 		done <- result{opts: opts, outcome: outcome, err: err}
 	}()
 
@@ -113,10 +138,10 @@ func TestRunAbortsOnEscAtTheFirstField(t *testing.T) {
 // back, but ctrl+c still ends the form wherever the focus happens to be.
 func TestCtrlCAbortsFromAnyField(t *testing.T) {
 	model := newTestModel(t)
-	model = apply(t, model, huh.NextField())
-	model = apply(t, model, huh.NextField())
-	if got := focusKey(model); got != KeyName {
-		t.Fatalf("focus = %q, want %q", got, KeyName)
+	model = applyAll(t, model, huh.NextField())
+	model = applyAll(t, model, huh.NextField())
+	if got := focusKey(model); got != KeyGroupID {
+		t.Fatalf("focus = %q, want %q", got, KeyGroupID)
 	}
 
 	before := model.state
@@ -138,19 +163,19 @@ func TestCtrlCAbortsFromAnyField(t *testing.T) {
 // leaves every value byte-identical.
 func TestEscMovesBackOneField(t *testing.T) {
 	model := newTestModel(t)
-	model = apply(t, model, huh.NextField()) // Artifact
-	model = apply(t, model, huh.NextField()) // Name
+	model = applyAll(t, model, huh.NextField()) // Location
+	model = applyAll(t, model, huh.NextField()) // Group
 	model = apply(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 
-	if got := focusKey(model); got != KeyName {
-		t.Fatalf("focus = %q, want %q", got, KeyName)
+	if got := focusKey(model); got != KeyGroupID {
+		t.Fatalf("focus = %q, want %q", got, KeyGroupID)
 	}
 	before := model.state
 
-	model = apply(t, model, escKey())
+	model = applyAll(t, model, escKey())
 
-	if got := focusKey(model); got != KeyArtifactID {
-		t.Errorf("focus = %q, want the previous row %q", got, KeyArtifactID)
+	if got := focusKey(model); got != KeyLocation {
+		t.Errorf("focus = %q, want the previous row %q", got, KeyLocation)
 	}
 	if model.state != before {
 		t.Errorf("esc changed a value: %+v, want %+v", model.state, before)
@@ -166,14 +191,14 @@ func TestTabAndShiftTabReturnToTheSameField(t *testing.T) {
 
 	model = apply(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model = apply(t, model, huh.NextField())
-	if got := focusKey(model); got != KeyArtifactID {
-		t.Fatalf("after tab: focus = %q, want %q", got, KeyArtifactID)
+	if got := focusKey(model); got != KeyLocation {
+		t.Fatalf("after tab: focus = %q, want %q", got, KeyLocation)
 	}
 
 	model = apply(t, model, tea.KeyMsg{Type: tea.KeyShiftTab})
 	model = apply(t, model, huh.PrevField())
-	if got := focusKey(model); got != KeyGroupID {
-		t.Errorf("after shift+tab: focus = %q, want the first row %q", got, KeyGroupID)
+	if got := focusKey(model); got != KeyName {
+		t.Errorf("after shift+tab: focus = %q, want the first row %q", got, KeyName)
 	}
 	if model.state != before {
 		t.Errorf("navigation changed a value: %+v, want %+v", model.state, before)
@@ -216,9 +241,9 @@ func TestSameStateRendersTheSameFields(t *testing.T) {
 func TestEscBackToEditedPackageKeepsTheHumanValue(t *testing.T) {
 	model := newTestModel(t)
 
-	// Group -> Artifact -> Name -> Package.
+	// Name -> Location -> Group -> Package.
 	for range 3 {
-		model = apply(t, model, huh.NextField())
+		model = applyAll(t, model, huh.NextField())
 	}
 	model = apply(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 
@@ -230,12 +255,12 @@ func TestEscBackToEditedPackageKeepsTheHumanValue(t *testing.T) {
 		t.Fatal("typing into the package field left the derivation active")
 	}
 
-	// esc goes back to Name; forward returns to the package with its value.
-	model = apply(t, model, escKey())
-	if got := focusKey(model); got != KeyName {
-		t.Fatalf("after esc: focus = %q, want %q", got, KeyName)
+	// esc goes back to Group; forward returns to the package with its value.
+	model = applyAll(t, model, escKey())
+	if got := focusKey(model); got != KeyGroupID {
+		t.Fatalf("after esc: focus = %q, want %q", got, KeyGroupID)
 	}
-	model = apply(t, model, huh.NextField())
+	model = applyAll(t, model, huh.NextField())
 	if got := focusKey(model); got != KeyPackageName {
 		t.Fatalf("after returning: focus = %q, want %q", got, KeyPackageName)
 	}
@@ -246,18 +271,19 @@ func TestEscBackToEditedPackageKeepsTheHumanValue(t *testing.T) {
 		t.Error("coming back to the package field re-armed the derivation")
 	}
 
-	// Back to the artifact id and change it: the edit still wins.
-	model = apply(t, model, escKey()) // Name
-	model = apply(t, model, escKey()) // Artifact
-	if got := focusKey(model); got != KeyArtifactID {
-		t.Fatalf("focus = %q, want %q", got, KeyArtifactID)
+	// Back to the project name and change it: the edit still wins.
+	model = applyAll(t, model, escKey()) // Group
+	model = applyAll(t, model, escKey()) // Location
+	model = applyAll(t, model, escKey()) // Name
+	if got := focusKey(model); got != KeyName {
+		t.Fatalf("focus = %q, want %q", got, KeyName)
 	}
 	model = apply(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 
 	if model.state.PackageName != edited {
-		t.Errorf("PackageName = %q, want the human value %q after the artifact changed", model.state.PackageName, edited)
+		t.Errorf("PackageName = %q, want the human value %q after the name changed", model.state.PackageName, edited)
 	}
 	if model.state.packageAuto {
-		t.Error("changing the artifact re-armed the derivation")
+		t.Error("changing the name re-armed the derivation")
 	}
 }

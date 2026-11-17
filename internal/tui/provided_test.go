@@ -34,7 +34,7 @@ func TestFormOmitsProvidedFields(t *testing.T) {
 	form := newProjectForm(cat, provided, Default())
 
 	wantOrder := []Key{
-		KeyArtifactID, KeyName, KeyPackageName,
+		KeyName, KeyLocation, KeyPackageName,
 		KeyLanguage, KeyPackaging, KeyJavaVersion, KeyBootVersion,
 	}
 	if got := fieldKeys(form.fields); !reflect.DeepEqual(got, wantOrder) {
@@ -68,8 +68,8 @@ func TestFormDerivesPackageFromFlaggedIdentifiers(t *testing.T) {
 	cat := fixtureCatalog(t)
 
 	form := newProjectForm(cat, Values{
-		KeyGroupID:    "com.acme",
-		KeyArtifactID: "billing",
+		KeyGroupID: "com.acme",
+		KeyName:    "billing",
 	}, Default())
 
 	want := options.DerivePackageName("com.acme", "billing")
@@ -107,7 +107,7 @@ func TestProvidedPackageNameSurvivesIdentifierChanges(t *testing.T) {
 	// Later identifier changes leave the value alone, directly and through the
 	// model: there is no package widget, so the update loop cannot derive.
 	form.state.GroupID = "com.acme"
-	form.state.ArtifactID = "billing"
+	form.state.Name = "billing"
 	if form.state.followPackage() {
 		t.Error("followPackage overwrote a flag-supplied package name")
 	}
@@ -133,8 +133,8 @@ func TestAsks(t *testing.T) {
 	gap.Packaging = catalog.Select{}
 	answered := Values{
 		KeyGroupID:     "com.acme",
-		KeyArtifactID:  "billing",
 		KeyName:        "billing",
+		KeyLocation:    "/tmp/out",
 		KeyPackageName: "com.acme.billing",
 		KeyBuild:       options.BuildGradle,
 		KeyLanguage:    options.LanguageKotlin,
@@ -153,8 +153,8 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 	cat := fixtureCatalog(t)
 	provided := Values{
 		KeyGroupID:     "com.acme",
-		KeyArtifactID:  "billing",
 		KeyName:        "billing",
+		KeyLocation:    "/tmp/out",
 		KeyPackageName: "com.acme.billing",
 		KeyBuild:       options.BuildGradle,
 		KeyLanguage:    options.LanguageKotlin,
@@ -176,14 +176,15 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 
 	var stdout bytes.Buffer
 	type result struct {
-		opts    options.Options
-		outcome Outcome
-		err     error
+		opts     options.Options
+		location string
+		outcome  Outcome
+		err      error
 	}
 	done := make(chan result, 1)
 	go func() {
-		opts, outcome, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, ".", reader, &stdout)
-		done <- result{opts, outcome, err}
+		opts, location, outcome, err := Run(cat, provided, []string{"web", "data-jpa"}, Settings{}, reader, &stdout)
+		done <- result{opts, location, outcome, err}
 	}()
 
 	select {
@@ -202,6 +203,11 @@ func TestRunWithEveryFieldProvidedNeverStartsAProgram(t *testing.T) {
 		}
 		if got.opts.PackageName != "com.acme.billing" {
 			t.Errorf("PackageName = %q, want the flag value", got.opts.PackageName)
+		}
+		// The location the run writes into is the row --output answered, not the
+		// default the form would have started from (VS8).
+		if got.location != "/tmp/out" {
+			t.Errorf("location = %q, want the --output value /tmp/out", got.location)
 		}
 		// No screen is shown, so the dependencies are exactly the flag's answer.
 		if want := []string{"web", "data-jpa"}; !reflect.DeepEqual(got.opts.Deps, want) {

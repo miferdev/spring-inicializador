@@ -41,8 +41,8 @@ func interrupt(t *testing.T, m model, msg tea.Msg) (model, bool) {
 func TestEscOnTheFormFirstRowIsLeaving(t *testing.T) {
 	h := newHarness(t)
 
-	if got := h.focused(); got != KeyGroupID {
-		t.Fatalf("focus = %q, want the first row %q", got, KeyGroupID)
+	if got := h.focused(); got != KeyName {
+		t.Fatalf("focus = %q, want the first row %q", got, KeyName)
 	}
 
 	next, cmd := h.model.Update(escKey())
@@ -134,7 +134,7 @@ func TestRunReportsAnInterrupt(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var stdout bytes.Buffer
-		opts, outcome, err := Run(cat, nil, nil, Settings{}, ".", strings.NewReader("\x03"), &stdout)
+		opts, _, outcome, err := Run(cat, nil, nil, Settings{}, strings.NewReader("\x03"), &stdout)
 		done <- result{opts: opts, outcome: outcome, err: err}
 	}()
 

@@ -61,11 +61,6 @@ type model struct {
 	deps    dependenciesModel
 	theme   Theme
 
-	// destination is where the command line said the project should be written
-	// (--output). It is a review fact, not a request parameter, so it never enters
-	// options.Options (US6.1).
-	destination string
-
 	// outcome is why the wizard ended, when the user ended it rather than finishing:
 	// esc on the form's first row is leaving on purpose, ctrl+c anywhere is an
 	// interruption, and the caller's exit code depends on which (US6.4).
@@ -80,15 +75,14 @@ type model struct {
 // answered, with the dependency ids --deps already answered checked. Everything
 // is created once: switching screens reuses the same state and the same list, so
 // the round trip allocates nothing and loses nothing.
-func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string, theme Theme, destination string) model {
+func newModel(cat *catalog.Catalog, project *projectForm, dependencies []string, theme Theme) model {
 	return model{
-		catalog:     cat,
-		project:     project,
-		form:        newFormModel(project),
-		deps:        newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, theme),
-		theme:       theme,
-		destination: destination,
-		screen:      screenProject,
+		catalog: cat,
+		project: project,
+		form:    newFormModel(project),
+		deps:    newDependenciesModel(cat, dependencies, defaultWidth, defaultHeight, theme),
+		theme:   theme,
+		screen:  screenProject,
 	}
 }
 

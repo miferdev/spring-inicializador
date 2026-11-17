@@ -5,6 +5,7 @@ package tui
 // value and nothing can be written before enter.
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/miferdev/spring-inicializador/internal/catalog"
@@ -46,7 +47,7 @@ func (m model) reviewLines() []string {
 		{"Java", orDefault(opts.JavaVersion)},
 		{"Packaging", selectName(packaging, opts.Packaging)},
 		{"Deps", dependenciesLine(opts.Deps)},
-		{"Destination", orDefault(m.destination)},
+		{"Destination", m.projectPath(opts)},
 	}
 
 	lines := make([]string, 0, len(rows))
@@ -54,6 +55,13 @@ func (m model) reviewLines() []string {
 		lines = append(lines, fitLine(reviewLine(row.label, row.value), m.width))
 	}
 	return lines
+}
+
+// projectPath is where the run will write: the Location the Project section asked
+// for, plus the project's own name. filepath.Join is what turns "." into a path a
+// reader can check, without inventing a leading "./" (VS8).
+func (m model) projectPath(opts options.Options) string {
+	return filepath.Join(m.project.state.Location, opts.Name)
 }
 
 // reviewLine is one label and its value in the value column.

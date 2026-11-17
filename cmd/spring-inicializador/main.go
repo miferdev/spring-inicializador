@@ -49,11 +49,11 @@ Usage:
 
 Flags:
   --deps IDs         Comma-separated dependency ids, e.g. web,data-jpa
-  --output DIR       Directory that receives the generated project (default ".")
-  --force            Overwrite an existing output directory
+  --output DIR       Parent directory of the generated project (default ".")
+  --force            Overwrite an existing project directory
   --group-id ID      Project group id (default: from server metadata)
-  --artifact-id ID   Project artifact id (default: from server metadata)
-  --name NAME        Project name (default: artifact id)
+  --artifact-id ID   Project name; alias of --name, and --name wins if both are given
+  --name NAME        Project name: artifact id, name and folder (default: from server metadata)
   --package-name ID  Package name (default: derived from group and artifact)
   --build TYPE       Build tool: maven, gradle, gradle-kotlin (default "maven")
   --language LANG    Language: java, kotlin, groovy (default: from server metadata)
@@ -79,7 +79,7 @@ takes them too and also declines the one destructive action this tool has,
 replacing a non-empty --output directory. --no wins over --force, because
 declining the destructive action is the stronger statement.
 
-The archive is extracted into <output>/<artifact-id>.
+The archive is extracted into <output>/<project-name>.
 
 Exit codes: 0 success, 1 server or filesystem failure, 2 usage error,
 130 interrupted (ctrl+c); nothing is written on a failure or an interruption.
@@ -163,11 +163,17 @@ func providedByFlags(cmd *commandLine, passed map[string]bool) tui.Values {
 	if passed["group-id"] {
 		provided[tui.KeyGroupID] = strings.TrimSpace(cmd.groupID)
 	}
+	// --artifact-id and --name answer the same row: the project's name, which is
+	// also its artifact id and its folder (VS8). --name is written second, so it
+	// wins when a run passes both.
 	if passed["artifact-id"] {
-		provided[tui.KeyArtifactID] = strings.TrimSpace(cmd.artifactID)
+		provided[tui.KeyName] = strings.TrimSpace(cmd.artifactID)
 	}
 	if passed["name"] {
 		provided[tui.KeyName] = strings.TrimSpace(cmd.name)
+	}
+	if passed["output"] {
+		provided[tui.KeyLocation] = strings.TrimSpace(cmd.output)
 	}
 	if passed["package-name"] {
 		provided[tui.KeyPackageName] = strings.TrimSpace(cmd.packageName)
@@ -389,6 +395,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	opts := resolve(c, cmd, passed)
 	provided := providedByFlags(cmd, passed)
 
+	// The location is where the project is written. --output answers the form's
+	// Location row and is the whole answer for a scripted run (VS8).
+	location := strings.TrimSpace(cmd.output)
+
 	// On a terminal, with a terminal output, the form asks for exactly what the
 	// flags did not answer. --yes, --no, a redirected stdin and a piped stdout all
 	// keep a run scripted: a wizard painting into a pipe would destroy the log, and
@@ -396,10 +406,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// to ask.
 	if !cmd.yes && !cmd.no && interactiveStdin(os.Stdin) && interactiveStdout(stdout) && tui.Asks(c, provided) {
 		// --deps answers the dependency screen the way the project flags answer
-		// its rows: the ids arrive already checked, and the screen decides.
-		// --output is where the review says the project will land; it is not part of
-		// the request the server receives (US6.1).
-		chosen, outcome, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), cmd.output, os.Stdin, stdout)
+		// its rows: the ids arrive already checked, and the screen decides. Location
+		// is where the review says the project will land; it is not part of the
+		// request the server receives (US6.1, VS8).
+		chosen, chosenLocation, outcome, err := runForm(c, provided, splitDeps(cmd.deps), appearance(cmd.fancy, cmd.noColor), os.Stdin, stdout)
 		if err != nil {
 			return reportError(stderr, err)
 		}
@@ -413,6 +423,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return exitOK
 		}
 		opts = chosen
+		location = chosenLocation
 	}
 
 	// --dry-run resolves everything a real run would and then prints it instead
@@ -429,7 +440,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	report.ok(stepGenerating, size(len(archive)))
 
-	result, err := extract.Extract(archive, cmd.output, cmd.force)
+	result, err := extract.Extract(archive, location, cmd.force)
 	if err != nil {
 		report.fail(stepExtracting)
 		return reportError(stderr, err)
@@ -440,8 +451,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	report.ok(stepPermissions, executables(result.Executable, opts.ArtifactID))
 
 	// The server names the archive's top-level directory after baseDir, which
-	// this tool always sets to the artifact id.
-	destination := filepath.Join(cmd.output, opts.ArtifactID)
+	// this tool always sets to the artifact id — and the artifact id is the name the
+	// Project section asked for, so this is <Location>/<Name> (VS8; US8.2 renames
+	// the directory instead of relying on that agreement).
+	destination := filepath.Join(location, opts.ArtifactID)
 	if result.Replaced {
 		fmt.Fprintf(stdout, "Overwrote %s\n", destination)
 	} else {
@@ -485,10 +498,11 @@ func resolve(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) optio
 		switch key {
 		case tui.KeyGroupID:
 			opts.GroupID = value
-		case tui.KeyArtifactID:
-			opts.ArtifactID = value
 		case tui.KeyName:
+			// The name is the single source: the artifact id and the folder follow
+			// it, exactly as the form's row does (VS8).
 			opts.Name = value
+			opts.ArtifactID = value
 		case tui.KeyPackageName:
 			opts.PackageName = value
 		case tui.KeyBuild:
@@ -504,12 +518,9 @@ func resolve(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) optio
 		}
 	}
 
-	// When the artifact id moves and nobody named the project, the name and the
-	// package follow it, so the request stays internally consistent.
-	if passed["artifact-id"] && !passed["name"] && opts.Name == defaults.ArtifactID {
-		opts.Name = opts.ArtifactID
-	}
-	if !passed["package-name"] && (passed["group-id"] || passed["artifact-id"]) {
+	// A package name nobody typed follows the identifiers, so the request stays
+	// internally consistent whichever frontend filled it.
+	if !passed["package-name"] && (passed["group-id"] || passed["artifact-id"] || passed["name"]) {
 		opts.PackageName = options.DerivePackageName(opts.GroupID, opts.ArtifactID)
 	}
 

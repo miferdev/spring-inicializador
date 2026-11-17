@@ -1,7 +1,7 @@
 package tui
 
 // Tests for US7.2: the sections the flags answered are gone, including from the
-// counter. A run that answered every row of Identity opens on Build and says 1/2,
+// counter. A run that answered every row of Project opens on Details and says 1/3,
 // a run that answered a section in the middle walks straight past it, and a run
 // that answered everything never opens the wizard at all. The model is driven with
 // the messages the event loop delivers, so no test needs a terminal.
@@ -14,12 +14,19 @@ import (
 	"github.com/miferdev/spring-inicializador/internal/options"
 )
 
-// identityAnswers are the flags that answer every row of Identity.
-func identityAnswers() Values {
+// projectAnswers are the flags that answer every row of Project: the name and where
+// it goes (--name and --output).
+func projectAnswers() Values {
+	return Values{
+		KeyName:     "billing",
+		KeyLocation: "/tmp/out",
+	}
+}
+
+// detailsAnswers are the flags that answer every row of Details.
+func detailsAnswers() Values {
 	return Values{
 		KeyGroupID:     "com.acme",
-		KeyArtifactID:  "billing",
-		KeyName:        "billing",
 		KeyPackageName: "com.acme.billing",
 	}
 }
@@ -53,20 +60,20 @@ func merge(sets ...Values) Values {
 	return all
 }
 
-// TestASkippedIdentityLeavesTheCounterAtOneOfTwo: every Identity row was answered,
-// so Build is the first of the two sections that will be shown, and there is no
+// TestASkippedProjectLeavesTheCounterAtOneOfThree: every Project row was answered,
+// so Details is the first of the three sections that will be shown, and there is no
 // earlier section for esc to go back to.
-func TestASkippedIdentityLeavesTheCounterAtOneOfTwo(t *testing.T) {
-	h := newProvidedHarness(t, 80, 24, identityAnswers())
+func TestASkippedProjectLeavesTheCounterAtOneOfThree(t *testing.T) {
+	h := newProvidedHarness(t, 80, 24, projectAnswers())
 
-	if got := frameTitle(h.model.View()); got != "Build 1/2" {
-		t.Fatalf("frame starts with %q, want %q", got, "Build 1/2")
+	if got := frameTitle(h.model.View()); got != "Details 1/3" {
+		t.Fatalf("frame starts with %q, want %q", got, "Details 1/3")
 	}
-	if got := h.focused(); got != KeyBuild {
-		t.Fatalf("focus = %q, want Build's first row %q", got, KeyBuild)
+	if got := h.focused(); got != KeyGroupID {
+		t.Fatalf("focus = %q, want Details' first row %q", got, KeyGroupID)
 	}
-	if got := h.model.project.firstKey; got != KeyBuild {
-		t.Errorf("firstKey = %q, want %q", got, KeyBuild)
+	if got := h.model.project.firstKey; got != KeyGroupID {
+		t.Errorf("firstKey = %q, want %q", got, KeyGroupID)
 	}
 
 	// Leaving: the interrupt command is inspected, not fed back, because a real
@@ -87,10 +94,10 @@ func TestASkippedIdentityLeavesTheCounterAtOneOfTwo(t *testing.T) {
 	}
 }
 
-// TestASkippedIdentityAndBuildLeaveOneSection: only Versions is left, it is the
+// TestASkippedProjectAndDetailsLeaveOneSection: only Versions is left, it is the
 // whole form, and enter still opens the dependency pane.
-func TestASkippedIdentityAndBuildLeaveOneSection(t *testing.T) {
-	h := newProvidedHarness(t, 80, 24, merge(identityAnswers(), buildAnswers()))
+func TestASkippedProjectAndDetailsLeaveOneSection(t *testing.T) {
+	h := newProvidedHarness(t, 80, 24, merge(projectAnswers(), detailsAnswers(), buildAnswers()))
 
 	if got := frameTitle(h.model.View()); got != "Versions 1/1" {
 		t.Fatalf("frame starts with %q, want %q", got, "Versions 1/1")
@@ -107,33 +114,32 @@ func TestASkippedIdentityAndBuildLeaveOneSection(t *testing.T) {
 	}
 }
 
-// TestASkippedMiddleSectionKeepsTheCrossings: Build was answered, so Identity is
-// 1/2 and Versions 2/2, and the two crossings straddle the section that is not
-// there.
+// TestASkippedMiddleSectionKeepsTheCrossings: Details was answered, so Project is
+// 1/3 and Build 2/3, and the two crossings straddle the section that is not there.
 func TestASkippedMiddleSectionKeepsTheCrossings(t *testing.T) {
-	h := newProvidedHarness(t, 80, 24, buildAnswers())
+	h := newProvidedHarness(t, 80, 24, detailsAnswers())
 
-	if got := frameTitle(h.model.View()); got != "Identity 1/2" {
-		t.Fatalf("frame starts with %q, want %q", got, "Identity 1/2")
+	if got := frameTitle(h.model.View()); got != "Project 1/3" {
+		t.Fatalf("frame starts with %q, want %q", got, "Project 1/3")
 	}
 
-	h.walkTo(KeyPackageName)
+	h.walkTo(KeyLocation)
 	h.press(tea.KeyEnter)
 
-	if got := h.focused(); got != KeyJavaVersion {
-		t.Errorf("focus after enter on Identity's last row = %q, want Versions' first row %q", got, KeyJavaVersion)
+	if got := h.focused(); got != KeyBuild {
+		t.Errorf("focus after enter on Project's last row = %q, want Build's first row %q", got, KeyBuild)
 	}
-	if got := frameTitle(h.model.View()); got != "Versions 2/2" {
-		t.Errorf("frame starts with %q, want %q", got, "Versions 2/2")
+	if got := frameTitle(h.model.View()); got != "Build 2/3" {
+		t.Errorf("frame starts with %q, want %q", got, "Build 2/3")
 	}
 
 	h.press(tea.KeyEsc)
 
-	if got := h.focused(); got != KeyPackageName {
-		t.Errorf("focus after esc = %q, want Identity's last row %q", got, KeyPackageName)
+	if got := h.focused(); got != KeyLocation {
+		t.Errorf("focus after esc = %q, want Project's last row %q", got, KeyLocation)
 	}
-	if got := frameTitle(h.model.View()); got != "Identity 1/2" {
-		t.Errorf("frame starts with %q after esc, want %q", got, "Identity 1/2")
+	if got := frameTitle(h.model.View()); got != "Project 1/3" {
+		t.Errorf("frame starts with %q after esc, want %q", got, "Project 1/3")
 	}
 }
 
@@ -141,7 +147,7 @@ func TestASkippedMiddleSectionKeepsTheCrossings(t *testing.T) {
 // nothing left to ask there is no form at all, and the options are the flags'.
 func TestEveryRowAnsweredNeverOpensTheWizard(t *testing.T) {
 	cat := fixtureCatalog(t)
-	provided := merge(identityAnswers(), buildAnswers(), versionsAnswers())
+	provided := merge(projectAnswers(), detailsAnswers(), buildAnswers(), versionsAnswers())
 
 	if Asks(cat, provided) {
 		t.Fatal("Asks = true although every row was answered")
@@ -159,14 +165,20 @@ func TestEveryRowAnsweredNeverOpensTheWizard(t *testing.T) {
 	if opts.GroupID != "com.acme" || opts.Build != options.BuildGradle || opts.JavaVersion != "21" {
 		t.Errorf("options = %+v, want the flag values", opts)
 	}
+	if opts.ArtifactID != "billing" || opts.Name != "billing" {
+		t.Errorf("options name = (%q, %q), want the flag value billing", opts.ArtifactID, opts.Name)
+	}
+	if project.state.Location != "/tmp/out" {
+		t.Errorf("Location = %q, want the --output value", project.state.Location)
+	}
 }
 
-// TestNothingAnsweredStillNumbersThreeSections is the untouched case: nothing was
+// TestNothingAnsweredStillNumbersFourSections is the untouched case: nothing was
 // answered, so the counter is the whole form.
-func TestNothingAnsweredStillNumbersThreeSections(t *testing.T) {
+func TestNothingAnsweredStillNumbersFourSections(t *testing.T) {
 	h := newProvidedHarness(t, 80, 24, nil)
 
-	want := []string{"Identity 1/3", "Build 2/3", "Versions 3/3"}
+	want := []string{"Project 1/4", "Details 2/4", "Build 3/4", "Versions 4/4"}
 	for i, title := range want {
 		if got := frameTitle(h.model.View()); got != title {
 			t.Errorf("frame starts with %q, want %q", got, title)
@@ -181,38 +193,39 @@ func TestNothingAnsweredStillNumbersThreeSections(t *testing.T) {
 	}
 }
 
-// TestDerivationStillWorksWithOnlyIdentityShown: with Build and Versions answered,
-// Identity is the whole wizard and the package still follows group and artifact
-// until a human edits it.
-func TestDerivationStillWorksWithOnlyIdentityShown(t *testing.T) {
-	h := newProvidedHarness(t, 80, 24, merge(buildAnswers(), versionsAnswers()))
+// TestDerivationFollowsAFlaggedGroupAndTheTypedName: with Details, Build and
+// Versions answered, the group comes from a flag and the name from the Project
+// section, and the package follows both until a human edits it.
+func TestDerivationFollowsAFlaggedGroupAndTheTypedName(t *testing.T) {
+	provided := merge(Values{KeyGroupID: "com.acme"}, buildAnswers(), versionsAnswers())
+	h := newProvidedHarness(t, 80, 24, provided)
 
-	if got := frameTitle(h.model.View()); got != "Identity 1/1" {
-		t.Fatalf("frame starts with %q, want %q", got, "Identity 1/1")
+	if got := frameTitle(h.model.View()); got != "Project 1/2" {
+		t.Fatalf("frame starts with %q, want %q", got, "Project 1/2")
 	}
 
 	h.typeText("acme.")
-	h.walkTo(KeyArtifactID)
-	h.typeText("billing")
 
-	derived := func() string {
-		return options.DerivePackageName(h.model.project.state.GroupID, h.model.project.state.ArtifactID)
+	derivedPackage := func() string {
+		state := h.model.project.state
+		return options.DerivePackageName(state.GroupID, state.Name)
 	}
-	if got, want := h.model.project.state.PackageName, derived(); got != want {
+	if got, want := h.model.project.state.PackageName, derivedPackage(); got != want {
 		t.Fatalf("PackageName = %q, want the derived %q", got, want)
 	}
 
-	// A human edit stops it, exactly as with three sections on screen.
+	// A human edit of the package stops it, exactly as with four sections on
+	// screen: the field is one section away now.
 	h.walkTo(KeyPackageName)
 	h.typeText("z")
 	edited := h.model.project.state.PackageName
 	if h.model.project.state.packageAuto {
-		t.Fatal("typing into the package field left the derivation active")
+		t.Fatal("typing into the package row left the derivation active")
 	}
 
-	h.walkBackTo(KeyArtifactID)
+	h.walkBackTo(KeyName)
 	h.typeText("y")
 	if got := h.model.project.state.PackageName; got != edited {
-		t.Errorf("PackageName = %q after the artifact changed, want the human value %q", got, edited)
+		t.Errorf("PackageName = %q after the name changed, want the human value %q", got, edited)
 	}
 }

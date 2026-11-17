@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -100,7 +101,10 @@ func (m formModel) frame(width int) string {
 		return ""
 	}
 
-	view := m.Form.View()
+	// huh pads every group to the height of the tallest one, so a two-row section
+	// would sit above a block of blank lines. The frame is the section and the hint,
+	// nothing else.
+	view := strings.TrimRight(m.Form.View(), " \n")
 	if view == "" {
 		// A finished or aborted form renders nothing, and nothing is what the screen
 		// should be: a hint for keys that no longer work would be a lie.
@@ -133,15 +137,15 @@ func (m formModel) atFirstField() bool {
 //
 // The wizard ends with enter on the review screen, which is the last screen: it
 // returns the options it summarised, with the checked dependencies in catalog
-// order, and the caller writes them. destination is where the command line said the
-// project goes (--output); it is a fact of the review, not part of the request, so
-// it never enters options.Options (US6.1).
+// order, and the caller writes them. location is the parent directory the Project
+// section asked for; it is where the project goes, not part of the request, so it
+// never enters options.Options (US6.1, VS8).
 //
 // The outcome says how it ended: Finished with options to write, Left when the user
 // backed out on purpose (esc on the form's first row), or Interrupted when ctrl+c
 // stopped it on any screen. Left and Interrupted are not errors — the caller decides
 // the exit code from the outcome — and neither may write anything (US6.4).
-func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, destination string, stdin io.Reader, stdout io.Writer) (options.Options, Outcome, error) {
+func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings Settings, stdin io.Reader, stdout io.Writer) (options.Options, string, Outcome, error) {
 	theme := NewTheme(settings)
 	if settings.NoColor {
 		// The form is painted by huh and the rows by the list component: only the
@@ -152,14 +156,14 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 	if !project.asks() {
 		opts := optionsFromState(cat, project.state)
 		opts.Deps = dependencies
-		return opts, Finished, nil
+		return opts, project.state.Location, Finished, nil
 	}
 
 	// The root model decides where enter and esc lead, so the form keeps its
 	// default commands (none): a completed form opens the dependency list
 	// instead of quitting the program.
 	last, err := tea.NewProgram(
-		newModel(cat, project, dependencies, theme, destination),
+		newModel(cat, project, dependencies, theme),
 		tea.WithInput(stdin),
 		tea.WithOutput(stdout),
 	).Run()
@@ -169,26 +173,26 @@ func Run(cat *catalog.Catalog, provided Values, dependencies []string, settings 
 	// on the difference (US6.4).
 	if errors.Is(err, tea.ErrInterrupted) {
 		if wizard, ok := last.(model); ok && wizard.outcome == Left {
-			return options.Options{}, Left, nil
+			return options.Options{}, "", Left, nil
 		}
-		return options.Options{}, Interrupted, nil
+		return options.Options{}, "", Interrupted, nil
 	}
 	if err != nil {
-		return options.Options{}, Finished, fmt.Errorf("tui: running the wizard: %w", err)
+		return options.Options{}, "", Finished, fmt.Errorf("tui: running the wizard: %w", err)
 	}
 
 	wizard, ok := last.(model)
 	if !ok {
-		return options.Options{}, Finished, fmt.Errorf("tui: wizard returned %T, want tui.model", last)
+		return options.Options{}, "", Finished, fmt.Errorf("tui: wizard returned %T, want tui.model", last)
 	}
 	if wizard.project.form != nil && wizard.project.form.State == huh.StateAborted {
 		// Defensive: the abort reaches the program as an interrupt, so this is only
 		// reachable if a screen stops delivering that command.
 		if wizard.outcome == Interrupted {
-			return options.Options{}, Interrupted, nil
+			return options.Options{}, "", Interrupted, nil
 		}
-		return options.Options{}, Left, nil
+		return options.Options{}, "", Left, nil
 	}
 
-	return wizard.finished(), Finished, nil
+	return wizard.finished(), wizard.project.state.Location, Finished, nil
 }

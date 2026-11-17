@@ -13,11 +13,11 @@ import (
 
 // reviewScreen builds the wizard at a size, answers it as the flags would, and
 // opens the review the way a person does.
-func reviewScreen(t *testing.T, width, height int, provided Values, dependencies []string, destination string) model {
+func reviewScreen(t *testing.T, width, height int, provided Values, dependencies []string) model {
 	t.Helper()
 
 	cat := fixtureCatalog(t)
-	wizard := newModel(cat, newProjectForm(cat, provided, Default()), dependencies, Default(), destination)
+	wizard := newModel(cat, newProjectForm(cat, provided, Default()), dependencies, Default())
 	next, _ := wizard.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	wizard, ok := next.(model)
 	if !ok {
@@ -44,7 +44,7 @@ func openReview(t *testing.T, wizard model) model {
 // TestCtrlDOpensTheReview is the first criterion: the dependency pane's finish key
 // now leads to the review instead of ending the run, and nothing is written.
 func TestCtrlDOpensTheReview(t *testing.T) {
-	wizard := reviewScreen(t, 80, 24, nil, nil, ".")
+	wizard := reviewScreen(t, 80, 24, nil, nil)
 	wizard.screen = screenDependencies
 
 	reviewed := openReview(t, wizard)
@@ -61,7 +61,6 @@ func TestCtrlDOpensTheReview(t *testing.T) {
 func TestReviewListsEveryDecision(t *testing.T) {
 	provided := Values{
 		KeyGroupID:     "com.acme",
-		KeyArtifactID:  "billing",
 		KeyName:        "billing",
 		KeyPackageName: "com.acme.billing",
 		KeyBuild:       "gradle-kotlin",
@@ -72,7 +71,7 @@ func TestReviewListsEveryDecision(t *testing.T) {
 	}
 
 	reviewed := openReview(t, func() model {
-		wizard := reviewScreen(t, 80, 24, provided, []string{"data-jpa", "web"}, "/tmp/out")
+		wizard := reviewScreen(t, 80, 24, withLocation(provided, "/tmp/out"), []string{"data-jpa", "web"})
 		wizard.screen = screenDependencies
 		return wizard
 	}())
@@ -89,7 +88,7 @@ func TestReviewListsEveryDecision(t *testing.T) {
 		"Packaging     War",
 		// The ids come out in catalog order, not in the order they were seeded.
 		"Deps          web, data-jpa",
-		"Destination   /tmp/out",
+		"Destination   /tmp/out/billing",
 		"",
 		"[ Generate ]",
 		"enter generate  esc back",
@@ -109,9 +108,9 @@ func TestReviewListsEveryDecision(t *testing.T) {
 // TestEnterOnReviewFinishes: the review's enter hands the caller exactly the options
 // the wizard composed, and nothing else.
 func TestEnterOnReviewFinishes(t *testing.T) {
-	provided := Values{KeyGroupID: "com.acme", KeyArtifactID: "billing", KeyName: "billing"}
+	provided := Values{KeyGroupID: "com.acme", KeyName: "billing"}
 	reviewed := openReview(t, func() model {
-		wizard := reviewScreen(t, 80, 24, provided, []string{"web"}, "/tmp/out")
+		wizard := reviewScreen(t, 80, 24, withLocation(provided, "/tmp/out"), []string{"web"})
 		wizard.screen = screenDependencies
 		return wizard
 	}())
@@ -146,7 +145,7 @@ func TestEnterOnReviewFinishes(t *testing.T) {
 // again, so the level, the query, the cursor and the selection are all untouched.
 func TestEscReturnsToTheDependencyPaneWithEverything(t *testing.T) {
 	cat := fixtureCatalog(t)
-	wizard := newModel(cat, newProjectForm(cat, nil, Default()), nil, Default(), ".")
+	wizard := newModel(cat, newProjectForm(cat, nil, Default()), nil, Default())
 	next, _ := wizard.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	wizard = next.(model)
 
@@ -192,7 +191,7 @@ func TestEscReturnsToTheDependencyPaneWithEverything(t *testing.T) {
 // stated, not left blank.
 func TestReviewSaysNoneForNoDependencies(t *testing.T) {
 	reviewed := openReview(t, func() model {
-		wizard := reviewScreen(t, 80, 24, nil, nil, ".")
+		wizard := reviewScreen(t, 80, 24, nil, nil)
 		wizard.screen = screenDependencies
 		return wizard
 	}())
@@ -206,30 +205,48 @@ func TestReviewSaysNoneForNoDependencies(t *testing.T) {
 	}
 }
 
-// TestReviewShowsTheDestinationFromRun: the destination is threaded into the model
-// and rendered as given, not resolved against the working directory.
-func TestReviewShowsTheDestinationFromRun(t *testing.T) {
-	for _, destination := range []string{".", "/tmp/out", "relative/dir"} {
-		t.Run(destination, func(t *testing.T) {
+// TestReviewShowsTheProjectPath: the destination is the Location the Project
+// section asked for joined with the project's name, resolved — never the bare "."
+// a person cannot check (VS8).
+func TestReviewShowsTheProjectPath(t *testing.T) {
+	cases := []struct {
+		provided Values
+		want     string
+	}{
+		{provided: nil, want: "Destination   demo"},
+		{provided: Values{KeyLocation: "/tmp/out"}, want: "Destination   /tmp/out/demo"},
+		{provided: Values{KeyLocation: "relative/dir"}, want: "Destination   relative/dir/demo"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
 			reviewed := openReview(t, func() model {
-				wizard := reviewScreen(t, 120, 30, nil, nil, destination)
+				wizard := reviewScreen(t, 120, 30, tc.provided, nil)
 				wizard.screen = screenDependencies
 				return wizard
 			}())
 
-			want := "Destination   " + destination
-			if !strings.Contains(reviewed.View(), want) {
-				t.Errorf("the review does not show %q; view:\n%s", want, reviewed.View())
+			if !strings.Contains(reviewed.View(), tc.want) {
+				t.Errorf("the review does not show %q; view:\n%s", tc.want, reviewed.View())
 			}
 		})
 	}
+}
+
+// withLocation answers the Location row, the way --output does.
+func withLocation(provided Values, location string) Values {
+	answered := Values{KeyLocation: location}
+	for key, value := range provided {
+		answered[key] = value
+	}
+	return answered
 }
 
 // TestCtrlCOnReviewAborts: the confirmation screen still has a way out that writes
 // nothing.
 func TestCtrlCOnReviewAborts(t *testing.T) {
 	reviewed := openReview(t, func() model {
-		wizard := reviewScreen(t, 80, 24, nil, []string{"web"}, ".")
+		wizard := reviewScreen(t, 80, 24, nil, []string{"web"})
 		wizard.screen = screenDependencies
 		return wizard
 	}())
