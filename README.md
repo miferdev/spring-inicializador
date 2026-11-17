@@ -70,6 +70,7 @@ A run reports itself, one line per step, and stops at the first failure with the
 ```console
 $ spring-inicializador --deps web,data-jpa --output ~/projects --yes
 Catalog ........ ok   (206 dependencies)
+Boot ........... ok   (4.1.2)
 Generating ..... ok   (15 KB)
 Extracting ..... ok   (24 files)
 Permissions .... ok   (mvnw)
