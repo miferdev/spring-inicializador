@@ -44,7 +44,7 @@ func TestDefaultsFromFixture(t *testing.T) {
 		Language:    "java",
 		Packaging:   "jar",
 		JavaVersion: "17",
-		BootVersion: "4.1.2.RELEASE",
+		BootVersion: "4.1.2", // the catalog's 4.1.2.RELEASE, in the form Maven Central has
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Defaults(fixture) = %+v, want %+v", got, want)
@@ -59,6 +59,27 @@ func TestDefaultsFromFixture(t *testing.T) {
 // TestDefaultsFallbacks covers the two text fields the server leaves blank:
 // name and packageName have no `default` in the metadata, so they must fall
 // back to values derived from the identifiers instead of staying empty.
+// TestRequestedBootVersion pins the one rewriting this tool does to a version: the
+// legacy .RELEASE suffix the catalog still publishes and Maven Central does not
+// have. Everything else is passed through, so the server stays the judge (VS9.2).
+func TestRequestedBootVersion(t *testing.T) {
+	cases := map[string]string{
+		"4.1.2.RELEASE":        "4.1.2",
+		"2.3.12.RELEASE":       "2.3.12",
+		"4.1.2":                "4.1.2",
+		"4.2.0.RC2":            "4.2.0.RC2",
+		"4.2.0.BUILD-SNAPSHOT": "4.2.0.BUILD-SNAPSHOT",
+		"  4.1.2.RELEASE  ":    "4.1.2",
+		"":                     "",
+		".RELEASE":             ".RELEASE",
+	}
+	for published, want := range cases {
+		if got := options.RequestedBootVersion(published); got != want {
+			t.Errorf("RequestedBootVersion(%q) = %q, want %q", published, got, want)
+		}
+	}
+}
+
 func TestDefaultsFallbacks(t *testing.T) {
 	c := &catalog.Catalog{
 		Text: map[string]string{

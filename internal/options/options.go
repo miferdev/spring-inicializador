@@ -86,6 +86,27 @@ type Options struct {
 	Deps []string // dependency ids, in the order the user gave them
 }
 
+// legacyReleaseSuffix is what Spring Initializr still publishes on Boot versions and
+// Maven Central does not have: `4.1.2.RELEASE` is a 404 there, `4.1.2` is not. It is
+// the only rewriting this tool does to a version it did not choose, and the server
+// accepts both forms (VS9.2).
+const legacyReleaseSuffix = ".RELEASE"
+
+// RequestedBootVersion is the version the request carries: a published id that still
+// has the legacy .RELEASE suffix is trimmed to the form Maven Central resolves, and
+// anything else is returned unchanged — a self-hosted server that really publishes
+// those artifacts keeps working through the retry in cmd. Every path that receives a
+// version (the catalog default, a typed --boot-version, the wizard's picker) applies
+// this one rule, so the report, the review, --dry-run and the pom cannot disagree.
+func RequestedBootVersion(published string) string {
+	version := strings.TrimSpace(published)
+	plain := strings.TrimSuffix(version, legacyReleaseSuffix)
+	if plain == "" {
+		return version
+	}
+	return plain
+}
+
 // Defaults resolves every default the metadata document provides. Decision D3
 // overrides exactly one of them: the build is Maven, not the metadata's
 // `gradle-project`, so the flag and the UI agree.
@@ -100,7 +121,7 @@ func Defaults(c *catalog.Catalog) Options {
 	opts.Language = c.Language.Default
 	opts.Packaging = c.Packaging.Default
 	opts.JavaVersion = c.JavaVersion.Default
-	opts.BootVersion = c.BootVersion.Default
+	opts.BootVersion = RequestedBootVersion(c.BootVersion.Default)
 	opts.Description = strings.TrimSpace(c.Text["description"])
 
 	// name and packageName have no `default` in the metadata, so both are

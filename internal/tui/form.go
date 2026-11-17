@@ -309,7 +309,7 @@ func buildFields(cat *catalog.Catalog, provided Values) []field {
 		selectField(KeyLanguage, "Language", catalogChoices(cat.Language), cat.Language.Default),
 		selectField(KeyPackaging, "Packaging", catalogChoices(cat.Packaging), cat.Packaging.Default),
 		selectField(KeyJavaVersion, "Java", catalogChoices(cat.JavaVersion), cat.JavaVersion.Default),
-		selectField(KeyBootVersion, "Boot", catalogChoices(cat.BootVersion), cat.BootVersion.Default),
+		selectField(KeyBootVersion, "Boot", bootChoices(cat.BootVersion), options.RequestedBootVersion(cat.BootVersion.Default)),
 	}
 
 	fields := make([]field, 0, len(all))
@@ -379,6 +379,18 @@ func buildChoices(cat *catalog.Catalog) []choice {
 			continue
 		}
 		choices = append(choices, choice{value: build, label: value.Name})
+	}
+	return choices
+}
+
+// bootChoices offers the published Boot versions under the id the request will
+// carry. Spring Initializr still publishes a legacy .RELEASE suffix that Maven
+// Central does not have, so the picker, the review and the request all use the
+// plain form — one rule, in options.RequestedBootVersion (VS9.2).
+func bootChoices(sel catalog.Select) []choice {
+	choices := make([]choice, 0, len(sel.Values))
+	for _, value := range sel.Values {
+		choices = append(choices, choice{value: options.RequestedBootVersion(value.ID), label: value.Name})
 	}
 	return choices
 }
@@ -536,7 +548,9 @@ func optionsFromState(cat *catalog.Catalog, state formState) options.Options {
 	opts.Language = state.Language
 	opts.Packaging = state.Packaging
 	opts.JavaVersion = state.JavaVersion
-	opts.BootVersion = state.BootVersion
+	// The version that goes out is the requested one, whatever seeded the state: a
+	// flag or a reopened form may still carry the catalog's legacy .RELEASE id (VS9.2).
+	opts.BootVersion = options.RequestedBootVersion(state.BootVersion)
 
 	return opts
 }

@@ -13,6 +13,7 @@ import (
 // The step labels, in the order they happen.
 const (
 	stepCatalog     = "Catalog"
+	stepBoot        = "Boot"
 	stepGenerating  = "Generating"
 	stepExtracting  = "Extracting"
 	stepPermissions = "Permissions"
@@ -36,6 +37,13 @@ func (r stepReport) ok(label, detail string) {
 // report stays one aligned line per step.
 func (r stepReport) fail(label string) {
 	fmt.Fprintf(r.out, "%s fail\n", stepDots(label))
+}
+
+// retry reports a step that is being tried again with another value, naming the one
+// this attempt will use. It is neither ok nor fail: the step has not ended yet, and
+// the line says what the next attempt asks for (VS9.2).
+func (r stepReport) retry(label, detail string) {
+	fmt.Fprintf(r.out, "%s retry (%s)\n", stepDots(label), detail)
 }
 
 // stepDots is the label followed by the dots that pad it to the outcome column.
@@ -68,11 +76,6 @@ func size(bytes int) string {
 	}
 }
 
-// executables is the permissions step's detail: the files the extraction actually
-// made executable, named as the user sees them inside the project, or an explicit
-// statement when the archive shipped none. The archive's top-level directory is the
-// project itself — the server names it after baseDir, which this tool sets to the
-// artifact id — so it is not repeated here (US6.2).
 // executables names the files the extraction made executable, as the archive
 // spells them relative to the project; the extraction already dropped the
 // archive's top directory (VS8.2).

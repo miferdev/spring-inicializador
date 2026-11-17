@@ -191,7 +191,7 @@ func TestDryRunValues(t *testing.T) {
 		"language":     "java",             // catalog default
 		"packaging":    "jar",              // catalog default
 		"java":         "17",               // catalog default
-		"boot-version": "4.1.2.RELEASE",    // catalog default, not passed
+		"boot-version": "4.1.2",            // catalog default, without the legacy .RELEASE
 		"deps":         "web,postgresql",   // flag
 	}
 	if len(values) != len(want) {
@@ -229,7 +229,7 @@ func TestDryRunValues(t *testing.T) {
 			"language":     "kotlin",
 			"packaging":    "war",
 			"java":         "21",
-			"boot-version": "4.0.9.RELEASE",
+			"boot-version": "4.0.9",
 		} {
 			if got := values[key]; got != expected {
 				t.Errorf("%s = %q, want %q", key, got, expected)

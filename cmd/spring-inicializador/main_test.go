@@ -81,9 +81,22 @@ type fakeInitializr struct {
 	status   int
 	reject   string
 
+	// rejectVersions maps a bootVersion to the message the endpoint refuses it with;
+	// every other value succeeds, so a test can prove a retry (VS9.2).
+	rejectVersions map[string]string
+
+	// dropGeneration closes the connection instead of answering, so a test can prove
+	// a network failure is not retried (VS9.2). droppedGeneration is signalled once the
+	// handler is done, so the test can read the counters without racing it.
+	dropGeneration    bool
+	droppedGeneration chan struct{}
+
 	generationMethod string
 	generationType   string
 	generationForm   url.Values
+
+	// generationForms is every generation request, in order: a retry is a second one.
+	generationForms []url.Values
 
 	// metadataCalls and generationCalls count the requests each endpoint
 	// actually received, so a failing run can prove it never reached one.
@@ -95,9 +108,10 @@ func newFakeInitializr(t *testing.T) *fakeInitializr {
 	t.Helper()
 
 	fake := &fakeInitializr{
-		metadata: fixtureBytes(t),
-		archive:  starterArchive(t),
-		status:   http.StatusOK,
+		metadata:          fixtureBytes(t),
+		archive:           starterArchive(t),
+		status:            http.StatusOK,
+		droppedGeneration: make(chan struct{}, 1),
 	}
 
 	mux := http.NewServeMux()
@@ -114,6 +128,31 @@ func newFakeInitializr(t *testing.T) *fakeInitializr {
 			t.Errorf("ParseForm: %v", err)
 		}
 		fake.generationForm = r.PostForm
+		fake.generationForms = append(fake.generationForms, r.PostForm)
+
+		if fake.dropGeneration {
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				t.Errorf("the test server cannot drop the connection")
+				return
+			}
+			conn, _, err := hijacker.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			conn.Close()
+			fake.droppedGeneration <- struct{}{}
+			return
+		}
+
+		if message, rejected := fake.rejectVersions[r.PostForm.Get("bootVersion")]; rejected {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `{"status":400,"error":"Bad Request","message":%q,"path":"/starter.zip"}`, message)
+			return
+		}
+
 		if fake.status != http.StatusOK {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(fake.status)

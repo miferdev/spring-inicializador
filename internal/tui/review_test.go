@@ -82,7 +82,7 @@ func TestReviewListsEveryDecision(t *testing.T) {
 		"Coordinates   com.acme:billing",
 		"Package       com.acme.billing",
 		"Build         Gradle - Kotlin (gradlew)",
-		"Boot          4.0.9.RELEASE",
+		"Boot          4.0.9",
 		"Language      Kotlin",
 		"Java          21",
 		"Packaging     War",

@@ -66,6 +66,7 @@ func TestRunReportsEveryStep(t *testing.T) {
 
 	want := []string{
 		"Catalog ........ ok   (206 dependencies)",
+		"Boot ........... ok   (4.1.2)",
 		"Generating ..... ok   (" + size(len(fake.archive)) + ")",
 		"Extracting ..... ok   (2 files)",
 		"Permissions .... ok   (mvnw)",
@@ -165,6 +166,7 @@ func TestExtractionFailureStopsTheReport(t *testing.T) {
 	lines := outputLines(stdout)
 	want := []string{
 		"Catalog ........ ok   (206 dependencies)",
+		"Boot ........... ok   (4.1.2)",
 		"Generating ..... ok   (" + size(len(fake.archive)) + ")",
 		"Extracting ..... fail",
 	}

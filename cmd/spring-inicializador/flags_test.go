@@ -33,7 +33,7 @@ func TestFlagsReachTheRequest(t *testing.T) {
 		{"language", []string{"--language", "kotlin"}, "language", "kotlin"},
 		{"packaging", []string{"--packaging", "war"}, "packaging", "war"},
 		{"java", []string{"--java", "21"}, "javaVersion", "21"},
-		{"boot-version", []string{"--boot-version", "4.0.9.RELEASE"}, "bootVersion", "4.0.9.RELEASE"},
+		{"boot-version", []string{"--boot-version", "4.0.9.RELEASE"}, "bootVersion", "4.0.9"},
 	}
 
 	for _, tc := range cases {
@@ -205,7 +205,7 @@ func TestAllProjectFlagsNeverOpenTheForm(t *testing.T) {
 		"language":    "kotlin",
 		"packaging":   "war",
 		"javaVersion": "21",
-		"bootVersion": "4.0.9.RELEASE",
+		"bootVersion": "4.0.9",
 	} {
 		if got := form.Get(field); got != want {
 			t.Errorf("%s = %q, want %q", field, got, want)

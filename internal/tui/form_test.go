@@ -140,13 +140,15 @@ func TestFormOffersWhatTheServerPublishes(t *testing.T) {
 		},
 		{
 			KeyBootVersion,
+			// The picker and the request use the id Maven Central resolves, so the
+			// legacy .RELEASE suffix the catalog still publishes is gone (VS9.2).
 			[]string{
 				"4.2.0.BUILD-SNAPSHOT",
 				"4.2.0.RC2",
 				"4.1.3.BUILD-SNAPSHOT",
-				"4.1.2.RELEASE",
+				"4.1.2",
 				"4.0.10.BUILD-SNAPSHOT",
-				"4.0.9.RELEASE",
+				"4.0.9",
 			},
 			[]string{
 				"4.2.0 (SNAPSHOT)",
@@ -198,12 +200,13 @@ func TestFormDefaults(t *testing.T) {
 		t.Errorf("JavaVersion = %q, want 17", state.JavaVersion)
 	}
 	// The server's default is the newest supported Boot, not the newest id: the
-	// list starts with snapshots. Take it from the catalog and spell it out once.
-	if state.BootVersion != cat.BootVersion.Default {
-		t.Errorf("BootVersion = %q, want the metadata default %q", state.BootVersion, cat.BootVersion.Default)
+	// list starts with snapshots. Take it from the catalog, in the form the request
+	// carries: the legacy .RELEASE suffix is trimmed (VS9.2).
+	if want := options.RequestedBootVersion(cat.BootVersion.Default); state.BootVersion != want {
+		t.Errorf("BootVersion = %q, want the requested default %q", state.BootVersion, want)
 	}
-	if state.BootVersion != "4.1.2.RELEASE" {
-		t.Errorf("BootVersion = %q, want the documented 4.1.2.RELEASE", state.BootVersion)
+	if state.BootVersion != "4.1.2" {
+		t.Errorf("BootVersion = %q, want the documented 4.1.2", state.BootVersion)
 	}
 
 	// Text fields start on the metadata defaults. name and description have no

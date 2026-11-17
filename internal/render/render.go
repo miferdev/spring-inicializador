@@ -50,19 +50,21 @@ func Render(ctx context.Context, client *http.Client, baseURL string, opts optio
 		return nil, fmt.Errorf("render: reading project archive: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, newServerError(resp.Status, data)
+		return nil, newServerError(resp.StatusCode, resp.Status, data)
 	}
 
 	return data, nil
 }
 
-// ServerError is the server rejecting the request. It carries the payload so a
-// caller can inspect the status, but its message is the server's own text: the
+// ServerError is the server rejecting the request. It carries the status and the
+// payload so a caller can tell a refusal from a failure of the service itself, but
+// its message is the server's own text: the
 // Initializr error body already reads as a sentence for a human —
 // "Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0"
 // — and reimplementing those rules on the client would drift from the service.
 type ServerError struct {
 	Status  string
+	Code    int
 	Message string
 	Body    string
 }
@@ -80,8 +82,8 @@ type errorPayload struct {
 	Message string `json:"message"`
 }
 
-func newServerError(status string, body []byte) *ServerError {
-	serverErr := &ServerError{Status: status, Body: string(body)}
+func newServerError(code int, status string, body []byte) *ServerError {
+	serverErr := &ServerError{Status: status, Code: code, Body: string(body)}
 
 	var payload errorPayload
 	if err := json.Unmarshal(body, &payload); err == nil {

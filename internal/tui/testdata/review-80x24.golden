@@ -3,7 +3,7 @@ Project       demo
 Coordinates   com.example:demo
 Package       com.example.demo
 Build         Maven (mvnw)
-Boot          4.1.2.RELEASE
+Boot          4.1.2
 Language      Java
 Java          17
 Packaging     Jar

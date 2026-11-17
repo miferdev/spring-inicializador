@@ -433,7 +433,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 
+	// The version the request carries, stated before anything is sent, so the report
+	// and the generated pom cannot disagree (VS9.2).
+	report.ok(stepBoot, orServerDefault(opts.BootVersion))
+
 	archive, err := render.Render(ctx, client, baseURL, opts)
+	if err != nil && publishedVersionRetry(err, opts.BootVersion, c.BootVersion.Default) {
+		// A server that really publishes .RELEASE artifacts (Boot 2.x, self-hosted)
+		// gets one more attempt with the id the catalog offered. The retry happens
+		// here because this is where the pipeline and the catalog meet; render stays
+		// one request (VS9.2).
+		report.fail(stepGenerating)
+		opts.BootVersion = c.BootVersion.Default
+		report.retry(stepBoot, "published "+opts.BootVersion)
+		archive, err = render.Render(ctx, client, baseURL, opts)
+	}
 	if err != nil {
 		report.fail(stepGenerating)
 		return reportError(stderr, err)
@@ -516,7 +530,9 @@ func resolve(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) optio
 		case tui.KeyJavaVersion:
 			opts.JavaVersion = value
 		case tui.KeyBootVersion:
-			opts.BootVersion = value
+			// The same rule the catalog default obeys: the request carries the form
+			// Maven Central resolves (VS9.2).
+			opts.BootVersion = options.RequestedBootVersion(value)
 		}
 	}
 
@@ -546,6 +562,35 @@ func splitDeps(list string) []string {
 		}
 	}
 	return deps
+}
+
+// publishedVersionRetry reports whether the server refused the version this tool
+// asked for and the catalog published a different one to fall back to. A network
+// failure, a 5xx and a request whose version was never rewritten are not a rejected
+// version, and retrying them would only cost time (VS9.2).
+func publishedVersionRetry(err error, requested, published string) bool {
+	// Only a version this tool rewrote has a published form to fall back to: a value
+	// the user typed is theirs, and a wrong one is the server's answer, not a reason
+	// to ask for something else (VS9.2).
+	plain := options.RequestedBootVersion(published)
+	if plain == published || plain != requested {
+		return false
+	}
+
+	var serverErr *render.ServerError
+	if !errors.As(err, &serverErr) {
+		return false
+	}
+	return serverErr.Code >= 400 && serverErr.Code < 500
+}
+
+// orServerDefault names the version the request carries, or says the server picks
+// when this tool sends none.
+func orServerDefault(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return "server default"
+	}
+	return version
 }
 
 // dryRunField is one line of the dry run report.
