@@ -54,9 +54,10 @@ Generating a project needs network access to the Initializr API.
 
 ## Usage
 
-On a terminal it opens the wizard. The form asks the project fields in three sections — Identity, Build,
-Versions — one per screen, with `enter` moving on and `esc` going back. `esc` on the first field leaves
-without writing anything. Then the dependencies — the
+On a terminal it opens the wizard. The form asks the project fields in four sections — Project, Details,
+Build, Versions — one per screen, with `enter` moving on and `esc` going back. `Project` asks what the
+project is called and where it should be created; the name alone decides the artifact id, the package
+prefix and the folder. `esc` on the first field leaves without writing anything. Then the dependencies — the
 categories with their counts, `enter` to open one, `/` to search all 206 from any level, `space` to
 select, `g` to open the focused dependency's guide, `esc` to back out a level and `ctrl+d` to finish. From
 120 columns the focused dependency's description and guides sit beside the list; between 100 and 119 they
@@ -79,9 +80,11 @@ Next: cd /home/you/projects/demo && ./mvnw spring-boot:run
 | Flag | Meaning |
 | --- | --- |
 | `--deps` | Dependency IDs, for non-interactive runs; the list is the normal way |
-| `--output` | Directory that receives the project (default `.`) |
-| `--group-id`, `--artifact-id` | Project coordinates; the package name follows them |
-| `--name`, `--package-name` | Override the derived name and package |
+| `--output` | Parent directory; the project is created as `<output>/<name>` (default `.`) |
+| `--name` | Project name: the artifact id, the package prefix and the folder |
+| `--artifact-id` | Alias of `--name`; `--name` wins when both are given |
+| `--group-id` | Group id; with the name it derives the package |
+| `--package-name` | Override the derived package |
 | `--build` | `maven` (default), `gradle`, `gradle-kotlin` |
 | `--language`, `--packaging` | `java`/`kotlin`/`groovy`, `jar`/`war` — rejected before any request |
 | `--java`, `--boot-version` | Version ids, validated against what the server publishes |
