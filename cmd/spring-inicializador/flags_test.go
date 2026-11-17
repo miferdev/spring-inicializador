@@ -89,44 +89,37 @@ func TestVocabularyFlagsFailBeforeAnyRequest(t *testing.T) {
 	}
 }
 
-// TestPublishedVersionFlagsFailBeforeGeneration covers the flags only the server
-// can vouch for: the catalog is fetched to name the real values, then the run
-// stops before generating.
-func TestPublishedVersionFlagsFailBeforeGeneration(t *testing.T) {
+// TestVersionFlagsReachTheServer covers the flags only the server can vouch for:
+// whatever value they carry goes into the request unchanged, and the server's
+// answer is the verdict. VS9.1 removed the local list check that used to reject
+// `--java 99` here with the catalog's own values.
+func TestVersionFlagsReachTheServer(t *testing.T) {
 	cases := []struct {
-		flag      string
-		value     string
-		published string
+		flag  string
+		value string
+		field string
 	}{
-		{"java", "99", "27, 25, 21, 17"},
-		{
-			"boot-version",
-			"9.9.9",
-			"4.2.0.BUILD-SNAPSHOT, 4.2.0.RC2, 4.1.3.BUILD-SNAPSHOT, 4.1.2.RELEASE, 4.0.10.BUILD-SNAPSHOT, 4.0.9.RELEASE",
-		},
+		{"java", "99", "javaVersion"},
+		{"boot-version", "9.9.9", "bootVersion"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.flag, func(t *testing.T) {
 			fake := newFakeInitializr(t)
+			pipeStdin(t)
 
 			var stdout, stderr bytes.Buffer
-			code := run(fake.args("--"+tc.flag, tc.value), &stdout, &stderr)
+			code := run(fake.args("--"+tc.flag, tc.value, "--output", t.TempDir(), "--yes"), &stdout, &stderr)
 
-			if code != exitUsage {
-				t.Fatalf("run exit code = %d, want %d; stderr: %s", code, exitUsage, stderr.String())
+			if code != exitOK {
+				t.Fatalf("run exit code = %d, want %d; stderr: %s", code, exitOK, stderr.String())
 			}
-			if !strings.Contains(stderr.String(), tc.published) {
-				t.Errorf("stderr = %q, want the published values %q", stderr.String(), tc.published)
+			if got := fake.generationForm.Get(tc.field); got != tc.value {
+				t.Errorf("%s = %q, want the value as given, %q", tc.field, got, tc.value)
 			}
-			if !strings.Contains(stderr.String(), tc.value) {
-				t.Errorf("stderr = %q, want the rejected value %q", stderr.String(), tc.value)
-			}
-			if fake.metadataCalls != 1 {
-				t.Errorf("metadata calls = %d, want 1: the published values come from the catalog", fake.metadataCalls)
-			}
-			if fake.generationCalls != 0 {
-				t.Errorf("generation calls = %d, want 0", fake.generationCalls)
+			if fake.metadataCalls != 1 || fake.generationCalls != 1 {
+				t.Errorf("requests = %d metadata, %d generation; want the run to reach generation",
+					fake.metadataCalls, fake.generationCalls)
 			}
 		})
 	}

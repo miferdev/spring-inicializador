@@ -74,6 +74,9 @@ Flags:
 On a terminal, without --yes or --no, it asks for every project option a flag did
 not provide. Anything else stays non-interactive.
 
+--java and --boot-version are sent as given: the server decides which versions it
+accepts, and its answer is printed as it comes.
+
 --yes and --no cannot be combined. --yes takes every default without asking; --no
 takes them too and also declines the one destructive action this tool has,
 replacing a non-empty --output directory. --no wins over --force, because
@@ -222,50 +225,28 @@ func validateVocabulary(cmd *commandLine, passed map[string]bool) error {
 	return nil
 }
 
-// validatePublished rejects a value only the server can vouch for. It runs on
-// the fetched catalog, before generation, so the message names the versions that
-// actually exist instead of relaying a 400 from the server.
-func validatePublished(c *catalog.Catalog, cmd *commandLine, passed map[string]bool) error {
+// validateNotEmpty refuses an empty value for a flag whose domain belongs to the
+// server. An empty --boot-version would quietly mean "whatever the server defaults
+// to", so the request would disagree with the command line; a value the server
+// dislikes is its answer to give, not ours (VS9.1).
+func validateNotEmpty(cmd *commandLine, passed map[string]bool) error {
 	checks := []struct {
-		flag      string
-		value     string
-		published catalog.Select
+		flag  string
+		value string
 	}{
-		{"java", cmd.javaVersion, c.JavaVersion},
-		{"boot-version", cmd.bootVersion, c.BootVersion},
+		{"java", cmd.javaVersion},
+		{"boot-version", cmd.bootVersion},
 	}
 
 	for _, check := range checks {
 		if !passed[check.flag] {
 			continue
 		}
-		if !publishedChoice(check.published, check.value) {
-			return fmt.Errorf("--%s %q is not published by the server; published: %s",
-				check.flag, check.value, choiceIDs(check.published))
+		if strings.TrimSpace(check.value) == "" {
+			return fmt.Errorf("--%s is empty; omit it to let the server choose, or pass a value", check.flag)
 		}
 	}
 	return nil
-}
-
-func publishedChoice(sel catalog.Select, id string) bool {
-	for _, value := range sel.Values {
-		if value.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func choiceIDs(sel catalog.Select) string {
-	if len(sel.Values) == 0 {
-		return "none"
-	}
-
-	ids := make([]string, 0, len(sel.Values))
-	for _, value := range sel.Values {
-		ids = append(ids, value.ID)
-	}
-	return strings.Join(ids, ", ")
 }
 
 // interactiveStdin reports whether a person can answer a prompt. A character
@@ -343,8 +324,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	passed := passedFlags(flags)
 
 	// The tool's own vocabulary is checked before any request: a typo must not
-	// cost a round trip.
+	// cost a round trip. The server's vocabulary is not checked here — only an empty
+	// value is refused, because it would silently mean "use the server default".
 	if err := validateVocabulary(cmd, passed); err != nil {
+		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
+		return exitUsage
+	}
+	if err := validateNotEmpty(cmd, passed); err != nil {
 		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
 		return exitUsage
 	}
@@ -391,12 +377,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		report.ok(stepCatalog, count(len(c.Dependencies), "dependency", "dependencies"))
 	}
 
-	// --java and --boot-version are the server's vocabulary: now that the catalog
-	// is here, check them against what it published, before generation.
-	if err := validatePublished(c, cmd, passed); err != nil {
-		fmt.Fprintf(stderr, "spring-inicializador: %v\n", err)
-		return exitUsage
-	}
+	// --java and --boot-version are the server's vocabulary: they are sent as given,
+	// and the server's own rejection travels through reportError like any other. Only
+	// an empty value is refused here, before it costs a round trip (VS9.1).
 
 	opts := resolve(c, cmd, passed)
 

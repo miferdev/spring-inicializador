@@ -238,21 +238,24 @@ func TestDryRunValues(t *testing.T) {
 	})
 }
 
-// TestDryRunStillRejectsPublishedValues pins that a dry run goes through the
-// same checks a real run would: an unknown --java fails before printing.
-func TestDryRunStillRejectsPublishedValues(t *testing.T) {
+// TestDryRunPrintsUnpublishedVersionsAsGiven pins that a dry run does not second
+// guess the server: a version the catalog does not list is printed, and nothing is
+// requested from the generation endpoint (VS9.1).
+func TestDryRunPrintsUnpublishedVersionsAsGiven(t *testing.T) {
 	fake := newFakeInitializr(t)
 	pipeStdin(t)
 
-	stdout, stderr, code := runDryRun(t, fake.args("--dry-run", "--java", "99"))
-	if code != exitUsage {
-		t.Fatalf("run exit code = %d, want %d; stderr: %s", code, exitUsage, stderr)
+	stdout, stderr, code := runDryRun(t, fake.args("--dry-run", "--java", "99", "--boot-version", "9.9.9"))
+	if code != exitOK {
+		t.Fatalf("run exit code = %d, want %d; stderr: %s", code, exitOK, stderr)
 	}
-	if stdout != "" {
-		t.Errorf("stdout = %q, want nothing on a usage error", stdout)
+
+	values := parseDryRun(t, stdout)
+	if got := values["java"]; got != "99" {
+		t.Errorf("java = %q, want the value as given, 99", got)
 	}
-	if !strings.Contains(stderr, "27, 25, 21, 17") {
-		t.Errorf("stderr = %q, want the published java versions", stderr)
+	if got := values["boot-version"]; got != "9.9.9" {
+		t.Errorf("boot-version = %q, want the value as given, 9.9.9", got)
 	}
 	if fake.generationCalls != 0 {
 		t.Errorf("generation calls = %d, want 0", fake.generationCalls)
